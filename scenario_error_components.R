@@ -53,9 +53,12 @@ p_tot = p_base +
   geom_segment(data = data.frame(x = ex_scenarios[1], xend = ex_scenarios[1], 
                                  y = ex_projections[1], yend = true_obs),
                aes(x = x, xend = xend, y = y, yend = yend), size = 2, color = "#579d1c") + 
+  geom_segment(data = data.frame(x = ex_scenarios[2], xend = ex_scenarios[2], 
+                                 y = ex_projections[2], yend = true_obs),
+               aes(x = x, xend = xend, y = y, yend = yend), size = 2, color = "#579d1c") + 
   geom_text(data = data.frame(x = ex_scenarios[1]+0.03, 
                               y = mean(c(ex_projections[1], true_obs))), 
-            aes(x = x, y = y), label = "observation\nbias", 
+            aes(x = x, y = y), label = "observed\nbias", 
             color = "#579d1c", hjust = 0, size = 2)  +
   geom_point(aes(x = scenarios, y = projections, color = type, 
                  fill = interaction(type,observable)), shape = 21, size = 3)
@@ -96,4 +99,6 @@ p_scenario = p_base +
 plot_grid(p_true, p_tot, p_miscal, p_scenario)
 ggsave("scenario_error_components.pdf", width = 6.5, height = 6)
 
+plot_grid(p_tot, p_scenario, p_miscal, nrow = 1)
+ggsave("decompose_observed_error.pdf", width = 9, height = 3)
 
