@@ -29,7 +29,7 @@ library(dplyr)
 library(ggplot2)
 library(quantreg)
 library(gamlss)
-source("R/final-size-functions.R")
+source("../R/final-size-functions.R")
 ```
 
 Let's say we have 2 models and 50 locations. The below figure shows what our simulation generates for two random locations: (1) projections from each model for the scenarios of interest, and the realized scenario value (projections in black points, realized scenario value in dotted vertical line), (2) "true" final epidemic size foreach of these scenario values. Note, since this is a simulation, we can also calculate final size at every other scenario value, which is shown with the light lines.
