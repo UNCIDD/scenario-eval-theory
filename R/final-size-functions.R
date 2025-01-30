@@ -4,7 +4,8 @@ full_sim <- function(n_locations, n_models, seed = 100,
                      vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
                      true_vax_cov_lwr = NA, true_vax_cov_upr = NA, 
                      R0_lwr = 2, R0_upr = 3.5, cov_R0 = NA,
-                     model_bias_R0_mean = 0, model_bias_R0_sd = 0.05){
+                     model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
+                     fit_outcomes = TRUE){
   if(is.na(true_vax_cov_lwr)){true_vax_cov_lwr = vax_cov_S1}
   if(is.na(true_vax_cov_upr)){true_vax_cov_upr = vax_cov_S2}
   sims <- generate_final_size_preds(n_locations, n_models, seed, 
@@ -16,11 +17,17 @@ full_sim <- function(n_locations, n_models, seed = 100,
     rename(true_final_size = final_size) %>%
     dplyr::select(location_id, scenario_id, vax_cov, true_final_size)
   errors <- calculate_errors(model_sims, true_sims)$errors
-  quant_reg_est <- estimate_w_gamlss(vax_cov_S1 = vax_cov_S1, 
-                                               vax_cov_S2 = vax_cov_S2, errors_df = errors, n_models = n_models)
-  cov <- calculate_coverage(quant_reg_est, errors, vax_cov_S1, vax_cov_S2)
-  return(list(model_sims = model_sims, true_sims = true_sims, errors = errors, quant_reg = quant_reg_est, 
-              coverage = cov))
+  if(fit_outcomes){
+    quant_reg_est <- estimate_w_gamlss(vax_cov_S1 = vax_cov_S1, 
+                                       vax_cov_S2 = vax_cov_S2, errors_df = errors, 
+                                       n_models = n_models)
+    cov <- calculate_coverage(quant_reg_est, errors, vax_cov_S1, vax_cov_S2)
+    return(list(model_sims = model_sims, true_sims = true_sims, errors = errors, 
+                quant_reg = quant_reg_est, coverage = cov))
+  }
+  else{
+    return(list(model_sims = model_sims, true_sims = true_sims, errors = errors))
+  }
 }
 
 generate_final_size_preds <- function(n_locations, n_models, seed, 
@@ -139,7 +146,7 @@ estimate_w_gamlss <- function(vax_cov_S1, vax_cov_S2, errors_df, n_models,
   return(quant_fits)
 }
 
-calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2){
+calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2, summarize_by = "all"){
   cov_quant <- quant_fits %>%
     filter(vax_cov %in% c(vax_cov_S1, vax_cov_S2)) %>%
     mutate(scenario_id = ifelse(vax_cov == vax_cov_S1, "S1", "S2")) %>%
@@ -155,7 +162,48 @@ calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2){
         dplyr::select(model_id, location_id, scenario_id, obs),
       relationship = "many-to-many", by = join_by(model_id, scenario_id)
     ) %>%
-    mutate(cov = ifelse(obs <= upr & obs >= lwr, 1, 0)) %>%
-    summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha")) 
+    mutate(cov = ifelse(obs <= upr & obs >= lwr, 1, 0))
+  if(summarize_by == "all"){
+    cov_quant <- cov_quant  %>%
+      summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha")) 
+  }
+  else if(summarize_by == "model"){
+    cov_quant <- cov_quant  %>%
+      summarize(cov = sum(cov)/n(), .by = c("scenario_id", "model_id", "alpha")) 
+  }
   return(cov_quant)
 }
+
+# get GAM prediction intervals
+get_gam_PIs <- function(mod, xvals, invfn2){
+  ## simulate prediction intervals
+  ## adapted from: https://www.mail-archive.com/r-help@r-project.org/msg132608.html
+  ## example with normal: https://mikl.dk/post/2019-prediction-intervals-for-gam/
+  # here assuming normal distribution
+  # get estimates and covariance matrix
+  # browser()
+  beta <- coef(mod) # beta
+  Vb <- vcov(mod) # V
+  # simulate beta vectors 
+  reps <- 10000 # num_beta_vecs
+  nb <- length(beta)
+  br <- t(chol(Vb)) %*% matrix(rnorm(reps*nb), nb, reps) + beta # beta_sims <- beta + t(Cv) %*% matrix(nus, length_beta, num_beta_vecs) 
+  # replicates to linear predictors
+  Xp <- predict(mod, newdata = xvals, type = "lpmatrix") # covar_sim (using grid of xvals instead of random samples)
+  lp <- Xp%*%br # linpred_sim = covar_sim %*% beta_sims
+  invfun <- family(mod)$linkinv # invlink
+  fv <- invfun(lp) # exp_val_sim
+  yr <- matrix(rnorm(fv*0, mean = fv, sd = sqrt(summary(mod)$scale)), # y_sim
+               nrow(fv), ncol(fv)) 
+  # transform and summarize
+  ret <- reshape2::melt(yr, keep.rownames = TRUE) %>%
+    rename(xval_id = Var1, sim = Var2) %>% 
+    mutate(value_inv = invfn2(value)) %>% 
+    reframe(quantile = quantiles, 
+              value = quantile(value_inv, quantiles), .by = c("xval_id")) %>% 
+    left_join(data.frame(xval_id = 1:length(unlist(xvals)), 
+                         xval = xvals)) %>% 
+    select(-xval_id)
+  return(ret)
+}
+
