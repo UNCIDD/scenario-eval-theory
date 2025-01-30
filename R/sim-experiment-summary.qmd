@@ -147,11 +147,17 @@ new_vax_cov = data.frame(vax_cov = seq(0.3, 0.5, length.out = 100))
  # testing some transforms
  # yeo-johnson seems to work with neg values
  yj_errors = yeojohnson(dat_filt$error)
- MASS::truehist(yj_errors$x.t, main = "yeo-johnson")
- 
  ordnorm_errors = orderNorm(dat_filt$error)
- MASS::truehist(yj_errors$x.t, main = "ordered norm")
+ # from https://www.listendata.com/2015/09/regression-transform-negative-values.html
+ cuberoot_errors = dat_filt$error^(1/3)
+ # from https://www.listendata.com/2015/09/regression-transform-negative-values.html
+ adjlog_errors = log(1 + dat_filt$error - min(dat_filt$error))
  
+ par(mfrow = c(2,2))
+ MASS::truehist(yj_errors$x.t, main = "yeo-johnson")
+ MASS::truehist(yj_errors$x.t, main = "ordered norm")
+ MASS::truehist(cuberoot_errors, main = "cube root")
+ MASS::truehist(adjlog_errors, main = "adjusted log")
 
  # fit GAM with cubic spline for mu and sigma
  gam_fit <- gamlss(error ~ cs(vax_cov),
