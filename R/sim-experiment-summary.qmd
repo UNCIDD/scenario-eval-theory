@@ -137,29 +137,38 @@ t_large <- full_sim(n_locations = 500, n_models,
                     vax_cov_S2 = 0.5,
                     seed = seed_id)
 
+quantiles = c(0.01, 0.025, seq(0.05, 0.95, 0.05), 0.975, 0.99)
+new_vax_cov = data.frame(vax_cov = seq(0.3, 0.5, length.out = 100))
+
 # filter to one model, and only error at realized scenario
  dat_filt = t_large$errors %>%
     filter(model_id == paste0("M", i), scenario_id == "T") 
-  
-# fit GAM with cubic spline for mu and sigma
- gam_fit <- gamlss(
-   error ~ cs(vax_cov), sigma.formula = ~ cs(vax_cov), tau.formula = ~ cs(vax_cov), 
-   data = dat_filt,  family = ST1, trace = FALSE,
-  mu.start = mean(dat_filt$error), sigma.start = sd(dat_filt$error), nu.fix = TRUE, nu.start = 10, tau.start = 1
- )
  
-g_pls <- centiles.pred(gam_fit, type = "centiles", 
-                          cent = seq(0.01,0.99,0.01)*100,
-                          xvalues = seq(0.3, 0.45, length.out = 100), xname = "vax_cov", 
-                          data = dat_filt)
-gam_sum = reshape2::melt(g_pls, c("x")) %>%
-      mutate(quantile = rep(seq(0.01,0.99,0.01),length(seq(0.01,0.99,0.01)) + 1)) %>%
-      rename(vax_cov = x) %>%
-      select(-variable)
+ # testing some transforms
+ # yeo-johnson seems to work with neg values
+ yj_errors = yeojohnson(dat_filt$error)
+ MASS::truehist(yj_errors$x.t, main = "yeo-johnson")
+ 
+ ordnorm_errors = orderNorm(dat_filt$error)
+ MASS::truehist(yj_errors$x.t, main = "ordered norm")
+ 
+
+ # fit GAM with cubic spline for mu and sigma
+ gam_fit <- gamlss(error ~ cs(vax_cov),
+                   sigma.formula = ~ cs(vax_cov), data = dat_filt,  family = NO, trace=FALSE)
+ 
+ g_pls = centiles.pred(gam_fit, type = "centiles", 
+                       cent = quantiles*100,
+                       xvalues = new_vax_cov$vax_cov, xname = "vax_cov", 
+                       data = dat_filt)
+ gam_sum = reshape2::melt(g_pls, c("x")) %>%
+   mutate(quantile = quantiles[variable]) %>%
+   rename(vax_cov = x) %>%
+   select(-variable)
 
 ggplot() +
   geom_hline(yintercept = 0) +
-  geom_line(data = t_large$errors,
+  geom_line(data = t_large$errors %>% filter(model_id == "M1"),
             aes(x = vax_cov, y = error, group = location_id), color = "gray", alpha = 0.6) +
   geom_line(data = t_large$errors %>% filter(scenario_id != "T") %>%
               group_by(model_id, vax_cov) %>% summarize(mean_error = median(error)),
