@@ -9,6 +9,7 @@ library(ggplot2)
 library(quantreg)
 library(gamlss)
 library(bestNormalize)
+library(MASS)
 source("./R/final-size-functions.R")
 
 #### GENERATE SIMULATIONS TO TEST ----------------------------------------------
@@ -148,7 +149,7 @@ cowplot::plot_grid(p1, p2, rel_widths = c(0.65, 0.35))
 # ggsave("fits_cov_500locs.pdf", width = 10, height = 4)
 
 #### REPEAT WITH FEWER LOCATIONS -----------------------------------------------
-# run simulation - using 500 locations for now
+# run simulation - using 50 locations
 t_small <- full_sim(n_locations = 50, n_models = n_models,
                     vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
                     R0_lwr = 2, R0_upr = 3.25,
@@ -206,4 +207,69 @@ p2 = ggplot(data = fits_cov_small, aes(x = alpha, y = cov, group = model_id)) +
 
 cowplot::plot_grid(p1, p2, rel_widths = c(0.65, 0.35))
 # ggsave("fits_cov_50locs.pdf", width = 8, height = 4)
+
+### ADD CORRELATION BETWEEN TRUE R0 AND REALIZED VAX COV -----------------------
+# run simulation - using 50 locations, correlated observations
+t_cor <- full_sim(n_locations = 50, n_models = n_models,
+                    vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+                    R0_lwr = 2, R0_upr = 3.25, cov_R0 = -0.5,
+                    seed = seed_id, fit_outcomes = FALSE)
+
+# plot true values
+ggplot(data = t_cor$true_sims %>% filter(scenario_id == "T"), 
+       aes(x =vax_cov, y = true_final_size)) + 
+  geom_point()
+
+# note: scenario_id = T returns only observed errors (not true errors to test against)
+error_df_cor = t_cor$errors %>% filter(scenario_id == "T") 
+
+all_mod_fits_cor <- vector("list", n_models)
+for(i in 1:n_models){
+  dat_filt = error_df_cor %>% 
+    filter(model_id == paste0("M", i)) %>% 
+    mutate(abs_log_trans = log(abs(error)))
+  gam_fit <- mgcv::gam(abs_log_trans ~ s(vax_cov), data = dat_filt)
+  gam_PIs <- get_gam_PIs(mod = gam_fit, xvals = new_vax_cov, invfn = exp)
+  all_mod_fits_cor[[i]] <- gam_PIs %>% 
+    mutate(quantile = paste0("Q", quantile*1000)) %>% 
+    reshape2::dcast(vax_cov ~ quantile) %>% 
+    cbind(mean = exp(predict(gam_fit, newdata = new_vax_cov))) # using exp transform here
+}
+
+# plot predictions
+p1 = bind_rows(all_mod_fits_cor, .id = "model_id") %>% 
+  mutate(model_id = paste0("M", model_id)) %>%
+  filter(model_id %in% sub_models) %>%
+  ggplot(aes(x = vax_cov)) + 
+  geom_ribbon(aes(ymin = Q25, ymax = Q975), fill = "blue", alpha = 0.2) +
+  geom_ribbon(aes(ymin = Q250, ymax = Q750), fill = "blue", alpha = 0.2) +
+  geom_line(aes(y = mean), color = "blue", size = 1) + 
+  geom_point(data = error_df_cor %>% filter(model_id %in% sub_models) , aes(y = abs(error))) +
+  facet_wrap(vars(model_id), scales = "free") + 
+  labs(x = "vaccination coverage", y = "absolute error") + 
+  theme_bw()
+
+# find coverage and plot
+fits_cov_small = calculate_coverage(
+  # do some reshaping to match expected format for quant_fits
+  quant_fits = bind_rows(all_mod_fits_cor, .id = "model_id") %>% 
+    mutate(model_id = paste0("M", model_id)) %>%
+    melt(c("model_id", "vax_cov")) %>% 
+    filter(variable != "mean") %>%
+    mutate(quantile = as.integer(gsub("Q", "", variable))/1000) %>%
+    dplyr::select(-variable), 
+  error_df = t_cor$errors %>% mutate(error = abs(error)), 
+  vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+  summarize_by = "model"
+)
+
+p2 = ggplot(data = fits_cov_small, aes(x = alpha, y = cov, group = model_id)) + 
+  geom_line(color = "blue", size = 1, alpha = 0.5) + 
+  geom_abline() + 
+  facet_wrap(vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), ncol = 1) + 
+  labs(x = "expected coverage", y = "actual coverage") + 
+  theme_bw()
+
+cowplot::plot_grid(p1, p2, rel_widths = c(0.65, 0.35))
+ggsave("fits_cov_corrobs0.2.pdf", width = 8, height = 4)
 
