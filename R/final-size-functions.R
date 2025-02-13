@@ -1,11 +1,72 @@
 #### FUNCTIONS -----------------------------------------------------------------
-
-full_sim <- function(n_locations, n_models, seed = 100, 
-                     vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
-                     true_vax_cov_lwr = NA, true_vax_cov_upr = NA, 
-                     R0_lwr = 2, R0_upr = 3.5, cov_R0 = NA,
-                     model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
-                     fit_outcomes = TRUE){
+#' function to implement full simulation of final size simulation experiment
+#' 
+#' @description
+#' The full simulation includes (1) generation of final size 
+#' scenario projections for n_models across n_locations under two vaccination 
+#' coverage scenarios; (2) estimating the error distribution for each model, and
+#' (3) calculating the coverage of the estimated error distribution against the
+#' true error distribution for each model
+#' 
+#' @param n_locations integer, number of locations to simulate
+#' @param n_models integer, number of models to simulate
+#' @param vax_cov_S1 double, assumed vaccination coverage in scenario 1 (lower value)
+#' @param vax_cov_S2 double, assumed vaccination coverage in scenario 2 (upper value)
+#' @param true_vax_cov_lwr double, lower bound on true vaccination coverage values
+#'                         if NA, assumed to be the same as vax_cov_S1
+#' @param true_vax_cov_upr double, upper bound on true vaccination coverage values
+#'                         if NA, assumed to be the same as vax_cov_S2
+#' @param R0_lwr double, lower bound on uniform distribution from which location-specific R0 is drawn
+#' @param R0_upr double, upper bound on uniform distribution from which location-specific R0 is drawn
+#' @param cov_R0 SOMETHING ABOUT CORRELATIONS IN OBSERVATIONS
+#' @param model_bias_R0_mean ADD HERE
+#' @param model_bias_R0_sd ADD HERE
+#' @param fit_outcomes logical, TRUE to estimate error distribution and calculate coverage
+#' 
+#' @details
+#' The simulation proceeds in the following steps: 
+#' 1. generate predictions of final size from each model under specified scenarios 
+#'    and true values for each location
+#' 2. calculate errors for each projection, across locations/models
+#' 3. (optional) estimate error distribution 
+#' 
+#' To generate predictions of final size, we first draw a realized vaccination
+#' coverage and a true R0 value for each location. Using the `finalSize` package, 
+#' we calculate the true final epidemic size for the low and high vaccination 
+#' scenarios, as well as the realized vaccination scenario. If cov_R0 is NA, 
+#' these values are drawn independently from uniform distributions (i.e., for 
+#' each location i, true_vax_cov_i ~ U(`true_vax_cov_lwr`, `true_vax_cov_upr`) and 
+#' R0_i ~ U(`R0_lwr`, `R0_upr`)). However, if a value is specified for `cov_R0`, we 
+#' draw correlated values for realized vaccination coverage and true R0 from
+#' a multi-variate normal distribution, with covariance `cov_R0`. 
+#' 
+#' Then, after true values for each location have been drawn, we draw a model-
+#' sepcific bias in R0 estimates, where for model j, 
+#' model_bias_j ~ N(`model_bias_R0_mean`, `model_bias_R0_sd`). This provides
+#' control of whether models tend to over- or under-estimate R0 for a given 
+#' location. Then, the model estimated R0 in a given location is the true R0 for 
+#' that location plus the model bias. The projected final size is again 
+#' calculated using the `finalSize` package based on model estimated R0 for 
+#' both scenarios of interest and for the realized vaccination coverage value.
+#' 
+#' Once projections and true values are generated, we calculate the errors for 
+#' each projection as projected final size minus true final size. The entire 
+#' process is also performed for intermediate values between scenarios so the 
+#' true error relationship for each location is available if desired. These are
+#' recorded with scenario_id = "E".
+#' 
+#' TO ADD/UPDATE: DETAILS ABOUT ESTIMATING ERROR DISTRIBUTION
+#' 
+#' @return list, including simulated values for each model/location/scenario 
+#' (model_sims), true values for each location(true_sims), and errors for each 
+#' model/location/scenario (errors); if error distribution is estimated, a 
+#' data.frame containing estimated quantiles for each model and scnenario (error_df)
+#' and the corresponding coverage (coverage) are also included in the list
+full_sim <- function(
+    n_locations, n_models, seed = 100, vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+    true_vax_cov_lwr = NA, true_vax_cov_upr = NA, R0_lwr = 2, R0_upr = 3.5, 
+    cov_R0 = NA, model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
+    fit_outcomes = TRUE){
   if(is.na(true_vax_cov_lwr)){true_vax_cov_lwr = vax_cov_S1}
   if(is.na(true_vax_cov_upr)){true_vax_cov_upr = vax_cov_S2}
   sims <- generate_final_size_preds(n_locations, n_models, seed, 
@@ -30,6 +91,7 @@ full_sim <- function(n_locations, n_models, seed = 100,
   }
 }
 
+#' 
 generate_final_size_preds <- function(n_locations, n_models, seed, 
                                       true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                       vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
@@ -174,14 +236,18 @@ calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2, sum
   return(cov_quant)
 }
 
-# get GAM prediction intervals
+#' Simulate prediction intervals from GAM fit
+#' 
+#' adapted from: https://www.mail-archive.com/r-help@r-project.org/msg132608.html
+#' example with normal: https://mikl.dk/post/2019-prediction-intervals-for-gam/
+#' here assuming normal distribution
+#' 
+#' @param mod GAM model fit
+#' @param xvals vector of x values for which to return prediction intervals
+#' @param invfn2 function, additional inverse function to be applied if predictions
+#' were transformed before fitting GAM, otherwise identity use function
 get_gam_PIs <- function(mod, xvals, invfn2){
-  ## simulate prediction intervals
-  ## adapted from: https://www.mail-archive.com/r-help@r-project.org/msg132608.html
-  ## example with normal: https://mikl.dk/post/2019-prediction-intervals-for-gam/
-  # here assuming normal distribution
   # get estimates and covariance matrix
-  # browser()
   beta <- coef(mod) # beta
   Vb <- vcov(mod) # V
   # simulate beta vectors 
@@ -206,4 +272,3 @@ get_gam_PIs <- function(mod, xvals, invfn2){
     select(-xval_id)
   return(ret)
 }
-
