@@ -12,6 +12,7 @@ library(bestNormalize)
 source("./R/final-size-functions.R")
 
 #### GENERATE SIMULATIONS TO TEST ----------------------------------------------
+reps = 1
 set.seed(10)
 seed_id = sample(1:1E6, reps)
 n_models = 2
@@ -67,12 +68,6 @@ MASS::truehist(sinh_errors, main = "asinh")
 dat_filt = dat_filt %>% 
   mutate(abs_log_trans = log(abs(error)))
 
-dat_filt %>% 
-  select(model_id, vax_cov, error, abs_log_trans) %>% 
-  melt(c("model_id", "vax_cov")) %>% 
-  ggplot(aes(x = vax_cov, y = value)) + 
-  
-  
 #### TRY SOME FITTING FOR ONE MODEL --------------------------------------------
 # start by using GAM with log transform on abs error
 # note, we can only fit/predict absolute error
