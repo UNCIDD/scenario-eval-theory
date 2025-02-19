@@ -60,7 +60,7 @@ sinh_errors = asinh(dat_filt$error)
 
 par(mfrow = c(2,3))
 MASS::truehist(yj_errors$x.t, main = "yeo-johnson")
-MASS::truehist(yj_errors$x.t, main = "ordered norm")
+MASS::truehist(ordnorm_errors$x.t, main = "ordered norm")
 MASS::truehist(adjlog_errors, main = "adjusted log")
 MASS::truehist(cuberoot_errors, main = "sign(x) abs(x)^(1/3)")
 MASS::truehist(log_errors, main = "sign(x) log(abs(x))")
