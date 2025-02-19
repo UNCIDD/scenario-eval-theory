@@ -212,7 +212,7 @@ cowplot::plot_grid(p1, p2, rel_widths = c(0.65, 0.35))
 # run simulation - using 50 locations, correlated observations
 t_cor <- full_sim(n_locations = 50, n_models = n_models,
                     vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
-                    R0_lwr = 2, R0_upr = 3.25, cov_R0 = -0.5,
+                    R0_lwr = 2, R0_upr = 3.25, cov_R0 = -0.2,
                     seed = seed_id, fit_outcomes = FALSE)
 
 # plot true values
@@ -272,4 +272,113 @@ p2 = ggplot(data = fits_cov_small, aes(x = alpha, y = cov, group = model_id)) +
 
 cowplot::plot_grid(p1, p2, rel_widths = c(0.65, 0.35))
 ggsave("fits_cov_corrobs0.2.pdf", width = 8, height = 4)
+
+### ADD VARIATION IN MODEL BIAS ACROSS LOCATIONS -------------------------------
+t_var <- full_sim(n_locations = 50, n_models = n_models,
+                  vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+                  R0_lwr = 2, R0_upr = 3.25,
+                  model_bias_ind_sd = 0.05,
+                  seed = seed_id, fit_outcomes = FALSE)
+
+# note: scenario_id = T returns only observed errors (not true errors to test against)
+error_df_var = t_var$errors %>% filter(scenario_id == "T") 
+
+# plot raw errors 
+ggplot(data = error_df_var, aes(x = vax_cov, y = error)) + 
+  geom_point() + 
+  facet_wrap(vars(model_id)) + 
+  theme_bw()
+
+## test normality and some transformations
+par(mfrow = c(2,5))
+for(i in 1:n_models){
+  # check qq plot
+  qqnorm(error_df %>% filter(model_id == paste0("M", i)) %>% pull(error), 
+         main = paste0("model ", i))
+  qqline(error_df %>% filter(model_id == paste0("M", i)) %>% pull(error))
+}
+# check qq plot
+
+
+# try some transformations
+dat_transform <- error_df %>% 
+  mutate(yj = yeojohnson(error)$x.t, 
+         ordnorm = orderNorm(error)$x.t, 
+         cuberoot = sign(error)*abs(error)^(1/3), 
+         log = sign(error)*log(abs(error)), 
+         adjlog = log(1 + error - min(error)),
+         sinh = asinh(dat_filt$error),
+         .by = "model_id") %>% 
+  dplyr::select(-relerror) %>%
+  melt(c("model_id", "location_id", "scenario_id", "vax_cov", "R0", "final_size", "true_final_size"))
+
+ggplot(data = dat_transform, aes(x = value)) + 
+  geom_histogram() + 
+  facet_wrap(vars(paste(model_id, variable)), scales = "free", ncol = 7) + 
+  theme_bw() +
+  theme(axis.title = element_blank(), 
+        axis.text = element_blank(), 
+        axis.ticks = element_blank(), 
+        legend.position = "none")
+
+ggplot(data = dat_transform, aes(sample = value, color = variable)) + 
+  stat_qq(shape = 21) + 
+  stat_qq_line() + 
+  facet_wrap(vars(paste(model_id, variable)), scales = "free", ncol = 7) + 
+  theme_bw() + 
+  theme(axis.title = element_blank(), 
+        axis.text = element_blank(), 
+        axis.ticks = element_blank(), 
+        legend.position = "none")
+
+# fit all models
+all_mod_fits_var <- vector("list", n_models)
+for(i in 1:n_models){
+  dat_filt = error_df_var %>% 
+    filter(model_id == paste0("M", i)) %>% 
+    mutate(abs_log_trans = log(abs(error)))
+  gam_fit <- mgcv::gam(abs_log_trans ~ s(vax_cov), data = dat_filt)
+  gam_PIs <- get_gam_PIs(mod = gam_fit, xvals = new_vax_cov, invfn = exp)
+  all_mod_fits_var[[i]] <- gam_PIs %>% 
+    mutate(quantile = paste0("Q", quantile*1000)) %>% 
+    reshape2::dcast(vax_cov ~ quantile) %>% 
+    cbind(mean = exp(predict(gam_fit, newdata = new_vax_cov))) # using exp transform here
+}
+
+# plot predictions
+p1 = bind_rows(all_mod_fits_var, .id = "model_id") %>% 
+  mutate(model_id = paste0("M", model_id)) %>%
+  filter(model_id %in% sub_models) %>%
+  ggplot(aes(x = vax_cov)) + 
+  geom_ribbon(aes(ymin = Q25, ymax = Q975), fill = "blue", alpha = 0.2) +
+  geom_ribbon(aes(ymin = Q250, ymax = Q750), fill = "blue", alpha = 0.2) +
+  geom_line(aes(y = mean), color = "blue", size = 1) + 
+  geom_point(data = error_df_var %>% filter(model_id %in% sub_models) , aes(y = abs(error))) +
+  facet_wrap(vars(model_id), scales = "free") + 
+  labs(x = "vaccination coverage", y = "absolute error") + 
+  theme_bw()
+
+# find coverage and plot
+fits_var_small = calculate_coverage(
+  # do some reshaping to match expected format for quant_fits
+  quant_fits = bind_rows(all_mod_fits_var, .id = "model_id") %>% 
+    mutate(model_id = paste0("M", model_id)) %>%
+    melt(c("model_id", "vax_cov")) %>% 
+    filter(variable != "mean") %>%
+    mutate(quantile = as.integer(gsub("Q", "", variable))/1000) %>%
+    dplyr::select(-variable), 
+  error_df = t_var$errors %>% mutate(error = abs(error)), 
+  vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+  summarize_by = "model"
+)
+
+p2 = ggplot(data = fits_var_small, aes(x = alpha, y = cov, group = model_id)) + 
+  geom_line(color = "blue", size = 1, alpha = 0.5) + 
+  geom_abline() + 
+  facet_wrap(vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), ncol = 1) + 
+  labs(x = "expected coverage", y = "actual coverage") + 
+  theme_bw()
+
+cowplot::plot_grid(p1, p2, rel_widths = c(0.65, 0.35))
+ggsave("fits_cov_indmodsd0.05.pdf", width = 8, height = 4)
 

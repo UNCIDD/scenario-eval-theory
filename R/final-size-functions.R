@@ -19,8 +19,20 @@
 #' @param R0_lwr double, lower bound on uniform distribution from which location-specific R0 is drawn
 #' @param R0_upr double, upper bound on uniform distribution from which location-specific R0 is drawn
 #' @param cov_R0 SOMETHING ABOUT CORRELATIONS IN OBSERVATIONS
-#' @param model_bias_R0_mean ADD HERE
-#' @param model_bias_R0_sd ADD HERE
+#' @param model_bias_R0_mean double, individual models are assigned a mean bias
+#'                           on R0; this specifies the mean of the distribution
+#'                           from which this model-specific bias is drawn
+#' @param model_bias_R0_sd double, individual models are assigned a mean bias on
+#'                         R0; this specifies the standard deviation of the distribution
+#'                         from which this model-specific bias is drawn
+#' @param model_bias_ind_sd double, for each model, the location-specific bias in 
+#'                          R0 is drawn from a normal distribution with model bias
+#'                          as the mean (drawn using params `model_bias_R0_mean` 
+#'                          and `model_bias_R0_sd`); this specifies the standard
+#'                          deviation of that distribution (i.e., how consistent
+#'                          the bias of an individual model in estimating R0
+#'                          across locations); defaults to 0, i.e., no variation 
+#'                          in model bias across locations
 #' @param fit_outcomes logical, TRUE to estimate error distribution and calculate coverage
 #' 
 #' @details
@@ -66,13 +78,14 @@ full_sim <- function(
     n_locations, n_models, seed = 100, vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
     true_vax_cov_lwr = NA, true_vax_cov_upr = NA, R0_lwr = 2, R0_upr = 3.5, 
     cov_R0 = NA, model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
-    fit_outcomes = TRUE){
+    model_bias_ind_sd = 0, fit_outcomes = TRUE){
   if(is.na(true_vax_cov_lwr)){true_vax_cov_lwr = vax_cov_S1}
   if(is.na(true_vax_cov_upr)){true_vax_cov_upr = vax_cov_S2}
   sims <- generate_final_size_preds(n_locations, n_models, seed, 
                                     true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                     vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
-                                    model_bias_R0_mean, model_bias_R0_sd)
+                                    model_bias_R0_mean, model_bias_R0_sd, 
+                                    model_bias_ind_sd)
   model_sims = sims %>% filter(model_id != "T")
   true_sims = sims %>% filter(model_id == "T") %>%
     rename(true_final_size = final_size) %>%
@@ -95,7 +108,8 @@ full_sim <- function(
 generate_final_size_preds <- function(n_locations, n_models, seed, 
                                       true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                       vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
-                                      model_bias_R0_mean, model_bias_R0_sd){
+                                      model_bias_R0_mean, model_bias_R0_sd, 
+                                      model_bias_ind_sd){
   set.seed(seed)
   if(is.na(cov_R0)){
     # true vaccination coverage for each location
@@ -132,7 +146,7 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
     mutate(scenario_id = "E")
   sims <- bind_rows(sims, sims_full_relationship)
   # add model bias
-  sims$R0 = R0_T[sims$location_id] + model_bias_R0[sims$model_id]
+  sims$R0 = R0_T[sims$location_id] + sapply(model_bias_R0[sims$model_id], rnorm, n = 1, sd = model_bias_ind_sd)
   sims$final_size = NA
   # final size variables
   susc_immunised <- cbind(1,0)
