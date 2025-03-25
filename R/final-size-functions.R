@@ -130,9 +130,20 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
     vax_cov_T = (df$V1 - min(df$V1))/(max(df$V1) - min(df$V1)) * (true_vax_cov_upr2 - true_vax_cov_lwr2) + true_vax_cov_lwr2
     R0_T = (df$V2 - min(df$V2))/(max(df$V2) - min(df$V2)) * (R0_upr2 - R0_lwr2) + R0_lwr2
   }
-  # bias in R0 estimate for each location
-  model_bias_R0 = c(rnorm(n_models, model_bias_R0_mean, model_bias_R0_sd), 0) # 0 for true model
-  names(model_bias_R0) = c(paste0("M", 1:n_models), "T")
+  # bias in R0 estimate for each model and location
+  # first get model bias
+  model_bias_R0 = data.frame(
+    model_id = c(paste0("M", 1:n_models), "T"),
+    model_bias = c(rnorm(n_models, model_bias_R0_mean, model_bias_R0_sd), 0) # 0 for true model
+  )
+  # then combine into an R0 value for each model-location pair (if model_id == T, there is no bias)
+  model_loc_R0 = expand.grid(model_id =  c(paste0("M", 1:n_models), "T"), 
+                            location_id = 1:n_locations) %>% 
+    left_join(model_bias_R0) %>% 
+    left_join(data.frame(location_id = 1:n_locations, 
+                         location_R0 = R0_T)) %>% 
+    mutate(location_bias_sd = ifelse(model_id == "T", 0, model_bias_ind_sd), 
+           R0 = location_R0 + rnorm(1, model_bias, location_bias_sd), .by = c("model_id", "location_id"))
   # generate all possibilities
   sims <- expand.grid(model_id = c(paste0("M", 1:n_models), "T"),
                       location_id = 1:n_locations, 
@@ -144,9 +155,9 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
                                         location_id = 1:n_locations, 
                                         vax_cov = seq(vax_cov_S1, vax_cov_S2, length.out = 20)) %>%
     mutate(scenario_id = "E")
-  sims <- bind_rows(sims, sims_full_relationship)
-  # add model bias
-  sims$R0 = R0_T[sims$location_id] + sapply(model_bias_R0[sims$model_id], rnorm, n = 1, sd = model_bias_ind_sd)
+  sims <- bind_rows(sims, sims_full_relationship) %>% 
+    # add model bias
+    left_join(model_loc_R0[, c("model_id", "location_id", "R0")])
   sims$final_size = NA
   # final size variables
   susc_immunised <- cbind(1,0)
