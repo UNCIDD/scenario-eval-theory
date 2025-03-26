@@ -324,13 +324,14 @@ plot_true_error_comparison <- function(preds_all,true_errors, scenario_labs,
            scenario_id = ifelse(vax_cov == vax_cov_S1, "S1", "S2")) %>%
     ggplot(aes(x = value, y = quantile, color = model_id)) + 
     geom_line() + 
-    geom_line(data = true_errors %>% summarize(quantile = quantiles, value = quantile(error, quantiles), .by = c("scenario_id", "vax_cov")), 
+    geom_line(data = true_errors %>% summarize(quantile = quantiles, value = quantile(error, quantiles), .by = c("model_id", "scenario_id", "vax_cov")), 
               color = "black") + 
-    facet_wrap(vars(scenario_id, model_id), labeller = labeller(scenario_id = scenario_labs), 
-               nrow = 2) + 
+    facet_grid(cols = vars(model_id), rows = vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), 
+               scales = "free") + 
     labs(x = "true error", y = "cumulative probability") + 
     theme_bw() + 
-    theme(panel.grid.minor = element_blank())
+    theme(legend.position = "none", 
+          panel.grid.minor = element_blank())
   return(p)
 }
 
@@ -364,6 +365,7 @@ ggsave("R/sim-experiment-final_size/mixture-distribution/50locations.pdf", width
 
 plot_true_error_comparison(preds_all = r_small$prediction, scenario_labs = scenario_labs,
                            true_errors = t_small$errors %>% filter(scenario_id %in% c("S1", "S2")))
+ggsave("R/sim-experiment-final_size/mixture-distribution/50locations_errordist-comparison.pdf", width = 12, height = 4)
 
 #### REPEAT WITH CORRELATION IN OBSERVATIONS -----------------------------------
 t_corr <- full_sim(n_locations = 50, n_models = n_models,
@@ -380,4 +382,25 @@ r_corr <- run_full_analysis(
 
 r_corr$p
 ggsave("R/sim-experiment-final_size/mixture-distribution/50locations_highcorr.pdf", width = 14, height = 6)
+
+plot_true_error_comparison(preds_all = r_corr$prediction, scenario_labs = scenario_labs,
+                           true_errors = t_corr$errors %>% filter(scenario_id %in% c("S1", "S2")))
+ggsave("R/sim-experiment-final_size/mixture-distribution/50locations_highcorr_errordist-comparison.pdf", width = 12, height = 4)
+
+
+bind_rows(r_corr$prediction) %>% 
+  filter(model_id == "M1") %>%
+  ggplot(aes(x = vax_cov)) + 
+  geom_point(data = t_corr$errors %>% filter(scenario_id %in% c("S1", "S2"), model_id == "M1"),
+             aes(y = error), color = "darkgray", shape = 8) +
+  geom_line(data = t_corr$errors %>% filter(scenario_id == "E", model_id == "M1"),
+            aes(y = error, group = location_id), color = "darkgray", alpha = 0.25) +
+  geom_point(data = t_corr$errors %>% filter(scenario_id == "T", model_id == "M1"), aes(y = error), shape = 21) +
+  geom_ribbon(aes(ymin = Q25, ymax = Q975, fill = model_id), alpha = 0.4) +
+  geom_ribbon(aes(ymin = Q250, ymax = Q750, fill = model_id), alpha = 0.6) +
+  geom_line(aes(y = Q500, color = model_id), size = 1) + 
+  facet_wrap(vars(model_id)) + 
+  labs(x = "vaccination coverage", y = "absolute error") + 
+  theme_bw() + 
+  theme(legend.position = "none")
 
