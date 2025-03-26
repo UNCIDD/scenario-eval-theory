@@ -342,3 +342,21 @@ r_small <- run_full_analysis(
 
 r_small$p
 ggsave("R/sim-experiment-final_size/mixture-distribution/50locations_lowcorr.pdf", width = 14, height = 6)
+
+#### REPEAT WITH LARGER CORRELATION IN OBSERVATIONS ----------------------------
+t_corr <- full_sim(n_locations = 50, n_models = n_models,
+                   vax_cov_S1 = 0.3, vax_cov_S2 = 0.5,
+                   R0_lwr = 2, R0_upr = 3,
+                   model_bias_ind_sd = 0.2,
+                   seed = seed_id, fit_outcomes = FALSE)
+
+r_corr <- run_full_analysis(
+  all_errors = t_corr$errors, new_vax_cov = new_vax_cov, alphas = alphas, 
+  plot_ind_boxcox_fits_flag = FALSE, calculate_coverage_flag = TRUE, 
+  plot_full_results_flag = TRUE, 
+  full_results_title = "50 locations, high correlation between R0 and true vax (0.2)"
+)
+
+r_corr$p
+ggsave("R/sim-experiment-final_size/mixture-distribution/50locations_highcorr.pdf", width = 14, height = 6)
+
