@@ -248,7 +248,8 @@ plot_ind_boxcox_fits <- function(error, pred_nominal_pos, pred_nominal_neg,
   print(p)
 }
 
-run_full_analysis <- function(all_errors, new_vax_cov, alphas, n_draws = 1e5, fit_thresh = 10,
+run_full_analysis <- function(all_errors, new_vax_cov, alphas, 
+                              vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, n_draws = 1e5, fit_thresh = 10,
                               plot_ind_boxcox_fits_flag = FALSE, calculate_coverage_flag = TRUE, 
                               plot_full_results_flag = TRUE, full_results_title = NA){
   # subset to only observed errors (i.e., scenario_id = T returns only observed errors)
@@ -278,7 +279,7 @@ run_full_analysis <- function(all_errors, new_vax_cov, alphas, n_draws = 1e5, fi
         mutate(quantile = as.integer(gsub("Q", "", variable))/1000) %>%
         dplyr::select(-variable), 
       error_df = true_errors,  # %>% mutate(error = abs(error))
-      vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+      vax_cov_S1 = vax_cov_S1, vax_cov_S2 = vax_cov_S2, 
       summarize_by = "model"
     )
     full_results_list$coverage = cov
@@ -313,6 +314,25 @@ run_full_analysis <- function(all_errors, new_vax_cov, alphas, n_draws = 1e5, fi
   return(full_results_list)
 }
   
+plot_true_error_comparison <- function(preds_all,true_errors, scenario_labs,
+                                       vax_cov_S1 = 0.3, vax_cov_S2 = 0.5
+                                                    ){
+  p <- bind_rows(preds_all) %>% 
+    filter(vax_cov %in% c(vax_cov_S1, vax_cov_S2)) %>%
+    melt(c("vax_cov", "model_id")) %>%
+    mutate(quantile = as.integer(gsub("Q", "", variable))/1000, 
+           scenario_id = ifelse(vax_cov == vax_cov_S1, "S1", "S2")) %>%
+    ggplot(aes(x = value, y = quantile, color = model_id)) + 
+    geom_line() + 
+    geom_line(data = true_errors %>% summarize(quantile = quantiles, value = quantile(error, quantiles), .by = c("scenario_id", "vax_cov")), 
+              color = "black") + 
+    facet_wrap(vars(scenario_id, model_id), labeller = labeller(scenario_id = scenario_labs), 
+               nrow = 2) + 
+    labs(x = "true error", y = "cumulative probability") + 
+    theme_bw() + 
+    theme(panel.grid.minor = element_blank())
+  return(p)
+}
 
 #### TRY THE FULL ANALYSIS -----------------------------------------------------
 r_large <- run_full_analysis(
@@ -342,10 +362,13 @@ r_small <- run_full_analysis(
 r_small$p
 ggsave("R/sim-experiment-final_size/mixture-distribution/50locations.pdf", width = 14, height = 6)
 
-#### REPEAT WITH LARGER CORRELATION IN OBSERVATIONS ----------------------------
+plot_true_error_comparison(preds_all = r_small$prediction, scenario_labs = scenario_labs,
+                           true_errors = t_small$errors %>% filter(scenario_id %in% c("S1", "S2")))
+
+#### REPEAT WITH CORRELATION IN OBSERVATIONS -----------------------------------
 t_corr <- full_sim(n_locations = 50, n_models = n_models,
                    vax_cov_S1 = 0.3, vax_cov_S2 = 0.5,
-                   R0_lwr = 2, R0_upr = 3, cov_R0 = -0.25,
+                   R0_lwr = 2, R0_upr = 3, cov_R0 = -0.5,
                    seed = seed_id, fit_outcomes = FALSE)
 
 r_corr <- run_full_analysis(
