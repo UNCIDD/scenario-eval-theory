@@ -10,33 +10,114 @@ data {
 }
 
 parameters {
-	real alpha;
-	real beta;
-	real lambda;
-	real<lower=0> sigma;
+	real alpha_pos;       // intercepts
+	real alpha_neg;
+	real beta_pos;        // slopes
+	real beta_neg;
+	real lambda_pos;      // box-cox hyper parameter
+	real lambda_neg;
+	// simplex[2] p;         // mixing proportions
+	real<lower=0> sigma_pos;
+	real<lower=0> sigma_neg;
 }
+
+// transformed parameters {
+//   vector y_boxcox;
+//   
+//   if(y[i] >= 0){
+//     if(lambda_pos == 0){
+//       y_boxcox[i] = log(y[i])
+//     }
+//     else{
+//       y_boxcox[i] = (y[i]^lambda_pos - 1)/lambda_pos 
+//     }
+//   }
+//   
+//   else{
+//     if(lambda_pos == 0){
+//       y_boxcox[i] = log(-1*y[i])
+//     }
+//     else{
+//       y_boxcox[i] = ((-1*y[i])^lambda_pos - 1)/lambda_pos 
+//     }
+//   }
+//   
+// }
 
 model {
-	lambda ~ normal(0,2);
-	alpha ~ normal(0,2);
-	beta ~ normal(0,2);
-	sigma ~ cauchy(0,5);
-
-	if(lambda == 0){
-		for(i in 1:N){
-			log(y[i]) ~ normal(x[i]*beta,sigma);
-			target += -log(y[i]);
-		}
-	} else {
-		for(i in 1:N){
-			(y[i]^lambda - 1)/lambda ~ normal(alpha + x[i]*beta,sigma);
-			target += (lambda - 1)*log(y[i]);
-		}
-	}
+  lambda_pos ~ normal(0,2);
+  lambda_neg ~ normal(0,2);
+  alpha_pos ~ normal(0,2);
+  alpha_neg ~ normal(0,2);
+  beta_pos ~ normal(0,2);
+  beta_neg ~ normal(0,2);
+  sigma_pos ~ cauchy(0,5);
+  sigma_neg ~ cauchy(0,5);
+  
+  for(i in 1:N){
+    if(y[i] >= 0){ // positive y values
+      if(lambda_pos == 0){
+        log(y[i]) ~ normal(alpha_pos + x[i]*beta_pos, sigma_pos);
+        target += -log(y[i]);// + log(p);
+      }
+      else {
+        (y[i]^lambda_pos - 1)/lambda_pos ~ normal(alpha_pos + x[i]*beta_pos, sigma_pos); // transform y using box-cox
+        target += (lambda_pos - 1)*log(y[i]);// + log(p);
+      }
+    }
+    else{  // negative y values
+      if(lambda_neg == 0){
+        log(-1*y[i]) ~ normal(alpha_neg + x[i]*beta_neg, sigma_neg);
+        target += -log(-1*y[i]);// + log(1-p);
+      } 
+      else {
+        ((-1*y[i])^lambda_neg - 1)/lambda_neg ~ normal(alpha_neg + x[i]*beta_neg, sigma_neg); // transform y using box-cox
+        target += (lambda_neg - 1)*log(-1*y[i]);// + log(1-p);
+      }
+    }
+  }
 }
+
+// for (n in 1:N) {
+//   target += log_sum_exp(log(p) + normal_lpdf(y[n] | alpha_pos + x[i]*beta_pos, sigma_pos),
+//                         log(1-p) + normal_lpdf(y[n] | alpha_neg + x[i]*beta_neg, sigma_neg));
+// }
+
 
 generated quantities { // for prediction intervals
   vector[N_new] y_new;
-  for (n in 1:N_new)
-    y_new[n] = normal_rng(alpha + x_new[n] * beta, sigma);
+  vector[N_new] y_new_nominal;
+  real<lower=0,upper=1> pos_flag; 
+  
+  for (n in 1:N_new){
+    pos_flag = bernoulli_rng(0.86); // p
+    if(pos_flag){
+      y_new[n] = normal_rng(alpha_pos + x_new[n] * beta_pos, sigma_pos);
+      if(lambda_pos == 0){
+        y_new_nominal[n] = exp(y_new[n]);
+      }
+      else{
+        if((lambda_pos * y_new[n] + 1) < 0){
+          y_new_nominal[n] = 0; // double check this is the assumption we want to make
+        }
+        else{
+          y_new_nominal[n] = (lambda_pos * y_new[n] + 1)^(1/lambda_pos);
+        }
+      }
+    }
+    else{
+      y_new[n] = normal_rng(alpha_neg + x_new[n] * beta_neg, sigma_neg);
+      if(lambda_neg == 0){
+        y_new_nominal[n] = -1*exp(y_new[n]);
+      }
+      else{
+        if((lambda_neg * y_new[n] + 1) < 0){
+          y_new_nominal[n] = 0; // double check this is the assumption we want to make
+        }
+        else{
+          y_new_nominal[n] = -1*((lambda_neg * y_new[n] + 1)^(1/lambda_neg));
+        }
+      }
+    }
+  }
 }
