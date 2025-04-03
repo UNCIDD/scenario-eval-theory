@@ -16,7 +16,7 @@ parameters {
 	real beta_neg;
 	real lambda_pos;      // box-cox hyper parameter
 	real lambda_neg;
-	// simplex[2] p;         // mixing proportions
+	real<lower=0, upper=1> p;         // mixing proportions
 	real<lower=0> sigma_pos;
 	real<lower=0> sigma_neg;
 }
@@ -58,21 +58,21 @@ model {
     if(y[i] >= 0){ // positive y values
       if(lambda_pos == 0){
         log(y[i]) ~ normal(alpha_pos + x[i]*beta_pos, sigma_pos);
-        target += -log(y[i]);// + log(p);
+        target += -log(y[i]) + log(p);
       }
       else {
         (y[i]^lambda_pos - 1)/lambda_pos ~ normal(alpha_pos + x[i]*beta_pos, sigma_pos); // transform y using box-cox
-        target += (lambda_pos - 1)*log(y[i]);// + log(p);
+        target += (lambda_pos - 1)*log(y[i]) + log(p);
       }
     }
     else{  // negative y values
       if(lambda_neg == 0){
         log(-1*y[i]) ~ normal(alpha_neg + x[i]*beta_neg, sigma_neg);
-        target += -log(-1*y[i]);// + log(1-p);
+        target += -log(-1*y[i]) + log(1-p);
       } 
       else {
         ((-1*y[i])^lambda_neg - 1)/lambda_neg ~ normal(alpha_neg + x[i]*beta_neg, sigma_neg); // transform y using box-cox
-        target += (lambda_neg - 1)*log(-1*y[i]);// + log(1-p);
+        target += (lambda_neg - 1)*log(-1*y[i]) + log(1-p);
       }
     }
   }
@@ -90,7 +90,7 @@ generated quantities { // for prediction intervals
   real<lower=0,upper=1> pos_flag; 
   
   for (n in 1:N_new){
-    pos_flag = bernoulli_rng(0.86); // p
+    pos_flag = bernoulli_rng(p);
     if(pos_flag){
       y_new[n] = normal_rng(alpha_pos + x_new[n] * beta_pos, sigma_pos);
       if(lambda_pos == 0){

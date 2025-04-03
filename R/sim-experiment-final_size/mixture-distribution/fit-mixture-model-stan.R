@@ -93,15 +93,16 @@ fit_errors <- sampling(
   chain = 4, 
   cores = 4
 )
+beepr::beep()
 
 # some summary/diagnostics
 posterior <- as.array(fit_errors)
 posterior_df <- as.data.frame(fit_errors)
 np <- nuts_params(fit_errors)
 
-mcmc_pairs(fit_errors, pars = c("alpha_neg", "beta_neg","lambda_neg", "sigma_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos"), np = np) #"alpha_neg", "beta_neg","lambda_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos", 
+mcmc_pairs(fit_errors, pars = c("alpha_neg", "beta_neg","lambda_neg", "sigma_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos", "p"), np = np)
 
-pars <- bind_cols(extract(fit_errors, c("alpha_pos", "beta_pos", "lambda_pos", "alpha_neg", "beta_neg", "lambda_neg"))) %>% #"alpha_pos", "beta_pos", "lambda_pos", 
+pars <- bind_cols(extract(fit_errors, c("alpha_pos", "beta_pos", "lambda_pos", "alpha_neg", "beta_neg", "lambda_neg", "p"))) %>% 
   mutate(draw_id = seq_len(n()))
 
 #### GET PREDICTION INTERVALS --------------------------------------------------
