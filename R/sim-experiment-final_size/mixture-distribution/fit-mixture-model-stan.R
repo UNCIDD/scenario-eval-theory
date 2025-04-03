@@ -1,20 +1,4 @@
-#### SETUP ---------------------------------------------------------------------
-library(finalsize)
-library(dplyr)
-library(reshape2)
-library(ggplot2)
-library(quantreg)
-library(gamlss)
-library(bestNormalize)
-library(MASS)
-library(rstan)
-library(bayesplot)
-
-source("./R/final-size-functions.R")
-
-scenario_labs = c("low vax scenario", "high vax scenario")
-names(scenario_labs) = c("S1", "S2")
-
+#### FUNCTIONS -----------------------------------------------------------------
 filter_posterior <- function(posterior, filter_criteria){
   if(length(dim(posterior)) == 2) {posterior_filtered <- posterior[,grepl(filter_criteria, dimnames(posterior)[[2]])]}
   else if(length(dim(posterior)) == 3) {posterior_filtered <- posterior[,,grepl(filter_criteria, dimnames(posterior)$parameters)]}
@@ -32,6 +16,48 @@ boxcox_transform <- function(y, lambda) {
 inverse_boxcox <- function(y_trans, lambda) {
   if (lambda == 0) exp(y_trans) else (lambda * y_trans + 1)^(1/lambda)
 }
+
+summarize_predints <- function(fit, new_vax_cov){
+  y_nominal = filter_posterior(as.data.frame(fit), "y_new_nominal\\[") %>%
+    left_join(data.frame(index_id = 1:length(new_vax_cov), 
+                         vax_cov = new_vax_cov)) %>%
+    summarize(Q5 = quantile(value, 0.05), 
+              Q10 = quantile(value, 0.10),
+              Q15 = quantile(value, 0.15), 
+              Q20 = quantile(value, 0.20), 
+              Q25 = quantile(value, 0.25),
+              Q30 = quantile(value, 0.30), 
+              Q35 = quantile(value, 0.35), 
+              Q40 = quantile(value, 0.40), 
+              Q45 = quantile(value, 0.45), 
+              Q50 = quantile(value, 0.5), 
+              Q55 = quantile(value, 0.55), 
+              Q60 = quantile(value, 0.60), 
+              Q65 = quantile(value, 0.65), 
+              Q70 = quantile(value, 0.70), 
+              Q75 = quantile(value, 0.75),
+              Q80 = quantile(value, 0.80), 
+              Q85 = quantile(value, 0.85), 
+              Q90 = quantile(value, 0.90), 
+              Q95 = quantile(value, 0.95), .by = c("vax_cov"))
+}
+
+#### SETUP ---------------------------------------------------------------------
+library(finalsize)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(quantreg)
+library(gamlss)
+library(bestNormalize)
+library(MASS)
+library(rstan)
+library(bayesplot)
+
+source("./R/final-size-functions.R")
+
+scenario_labs = c("low vax scenario", "high vax scenario")
+names(scenario_labs) = c("S1", "S2")
 
 #### GENERATE SIMULATIONS TO TEST ----------------------------------------------
 reps = 1
@@ -60,10 +86,6 @@ t_large <- full_sim(n_locations = 500, n_models = n_models,
 # note: scenario_id = T returns only observed errors (not true errors to test against)
 error_df = t_large$errors %>% filter(scenario_id == "T") 
 
-error_df_sub = error_df %>% 
-  filter(model_id == "M10") %>%
-  mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
-
 # do box-cox ahead of time (for now)
 # bx = boxcox(error ~ vax_cov, data = error_df_sub, plotit = FALSE)
 # lambda = with(bx, x[which.max(y)])
@@ -79,68 +101,68 @@ error_df_sub$error_boxcox = ifelse(error_df_sub < 0, boxcox_transform(-error_df_
 #### FIT WITH STAN -------------------------------------------------------------
 mixture_model <- stan_model("R/sim-experiment-final_size/mixture-distribution/mixture_model.stan")
 
-fit_errors <- sampling(
-  mixture_model,
-  data = list(
-    N = nrow(error_df_sub),
-    x = error_df_sub$vax_cov,
-    y = error_df_sub$error, 
-    N_new = length(new_vax_cov), 
-    x_new = new_vax_cov
-  ),
-  seed = 7, 
-  iter = 5000,
-  chain = 4, 
-  cores = 4
-)
+fit_errors <- vector("list", n_models)
+
+for(i in 4:4){
+  warning(paste0("fitting M", i))
+  error_df_sub = error_df %>% 
+    filter(model_id == paste0("M", i)) %>%
+    mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
+  # fit with STAN
+  fit_errors[[i]] <- sampling(
+    mixture_model,
+    data = list(
+      N = nrow(error_df_sub),
+      x = error_df_sub$vax_cov,
+      y = error_df_sub$error, 
+      N_new = length(new_vax_cov), 
+      x_new = new_vax_cov
+    ),
+    seed = 7, 
+    iter = 10000,
+    chain = 4, 
+    cores = 4
+  )
+}
 beepr::beep()
 
 # some summary/diagnostics
-posterior <- as.array(fit_errors)
-posterior_df <- as.data.frame(fit_errors)
-np <- nuts_params(fit_errors)
+posterior <- as.array(fit_errors[[4]])
+posterior_df <- as.data.frame(fit_errors[[4]])
+np <- nuts_params(fit_errors[[4]])
 
-mcmc_pairs(fit_errors, pars = c("alpha_neg", "beta_neg","lambda_neg", "sigma_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos", "p"), np = np)
+mcmc_pairs(fit_errors[[4]], pars = c("alpha_neg", "beta_neg","lambda_neg", "sigma_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos", "p"), np = np)
 
 pars <- bind_cols(extract(fit_errors, c("alpha_pos", "beta_pos", "lambda_pos", "alpha_neg", "beta_neg", "lambda_neg", "p"))) %>% 
   mutate(draw_id = seq_len(n()))
 
+#### GET PARAMETER ESTIMATES ---------------------------------------------------
+pars_to_extract = c("alpha_pos", "alpha_neg", "beta_pos", "beta_neg", "lambda_pos", "lambda_neg", "p")
+
+mean_ests = lapply(fit_errors, function(i){unlist(lapply(extract(i, pars_to_extract), mean))}) %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id))
+
+
 #### GET PREDICTION INTERVALS --------------------------------------------------
-y_nominal = filter_posterior(posterior_df, "y_new_nominal\\[") %>%
-  left_join(data.frame(index_id = 1:length(new_vax_cov), 
-                       vax_cov = new_vax_cov)) %>%
-  summarize(Q5 = quantile(value, 0.05), 
-            Q10 = quantile(value, 0.10),
-            Q15 = quantile(value, 0.15), 
-            Q20 = quantile(value, 0.20), 
-            Q25 = quantile(value, 0.25),
-            Q30 = quantile(value, 0.30), 
-            Q35 = quantile(value, 0.35), 
-            Q40 = quantile(value, 0.40), 
-            Q45 = quantile(value, 0.45), 
-            Q50 = quantile(value, 0.5), 
-            Q55 = quantile(value, 0.55), 
-            Q60 = quantile(value, 0.60), 
-            Q65 = quantile(value, 0.65), 
-            Q70 = quantile(value, 0.70), 
-            Q75 = quantile(value, 0.75),
-            Q80 = quantile(value, 0.80), 
-            Q85 = quantile(value, 0.85), 
-            Q90 = quantile(value, 0.90), 
-            Q95 = quantile(value, 0.95), .by = c("vax_cov"))
+pred_intervals <- lapply(fit_errors, summarize_predints, new_vax_cov = new_vax_cov) %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id))
 
 # nominal scale
-ggplot(data = y_nominal, aes(x = vax_cov)) + 
-  geom_point(data = error_df_sub, aes(x = vax_cov, y = error)) + 
-  geom_ribbon(aes(ymin = Q5, ymax = Q95), alpha = 0.2) + 
-  geom_ribbon(aes(ymin = Q25, ymax = Q75), alpha = 0.2) + 
-  geom_line(aes(y = Q50), size = 1)
+ggplot(data = pred_intervals, aes(x = vax_cov)) + 
+  geom_point(data = error_df, aes(x = vax_cov, y = error), color = "black", shape = 21) + 
+  geom_ribbon(aes(ymin = Q5, ymax = Q95, fill = model_id), alpha = 0.4) + 
+  geom_ribbon(aes(ymin = Q25, ymax = Q75, fill = model_id), alpha = 0.6) + 
+  geom_line(aes(y = Q50, color = model_id), size = 1) + 
+  facet_wrap(vars(model_id), scales = "free") + 
+  theme_bw() + 
+  theme(legend.position = "none")
 
 # check coverage
 cov = calculate_coverage(
   # do some reshaping to match expected format for quant_fits
-  quant_fits = y_nominal %>%
-    mutate(model_id = "M10") %>%
+  quant_fits = pred_intervals %>%
     melt(c("model_id", "vax_cov")) %>% 
     filter(variable != "mean") %>%
     mutate(quantile = as.integer(gsub("Q", "", variable))/100) %>%
