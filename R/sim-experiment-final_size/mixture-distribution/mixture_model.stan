@@ -21,29 +21,6 @@ parameters {
 	real<lower=0> sigma_neg;
 }
 
-// transformed parameters {
-//   vector y_boxcox;
-//   
-//   if(y[i] >= 0){
-//     if(lambda_pos == 0){
-//       y_boxcox[i] = log(y[i])
-//     }
-//     else{
-//       y_boxcox[i] = (y[i]^lambda_pos - 1)/lambda_pos 
-//     }
-//   }
-//   
-//   else{
-//     if(lambda_pos == 0){
-//       y_boxcox[i] = log(-1*y[i])
-//     }
-//     else{
-//       y_boxcox[i] = ((-1*y[i])^lambda_pos - 1)/lambda_pos 
-//     }
-//   }
-//   
-// }
-
 model {
   lambda_pos ~ normal(0,2);
   lambda_neg ~ normal(0,2);
@@ -77,12 +54,6 @@ model {
     }
   }
 }
-
-// for (n in 1:N) {
-//   target += log_sum_exp(log(p) + normal_lpdf(y[n] | alpha_pos + x[i]*beta_pos, sigma_pos),
-//                         log(1-p) + normal_lpdf(y[n] | alpha_neg + x[i]*beta_neg, sigma_neg));
-// }
-
 
 generated quantities { // for prediction intervals
   vector[N_new] y_new;
