@@ -52,6 +52,7 @@ library(gamlss)
 library(bestNormalize)
 library(MASS)
 library(rstan)
+library(rstanarm)
 library(bayesplot)
 
 source("./R/final-size-functions.R")
@@ -103,11 +104,11 @@ mixture_model <- stan_model("R/sim-experiment-final_size/mixture-distribution/mi
 
 fit_errors <- vector("list", n_models)
 
-for(i in 4:4){
+for(i in 1:n_models){
   warning(paste0("fitting M", i))
   error_df_sub = error_df %>% 
-    filter(model_id == paste0("M", i)) %>%
-    mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
+    filter(model_id == paste0("M", i)) #%>%
+    #mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
   # fit with STAN
   fit_errors[[i]] <- sampling(
     mixture_model,
@@ -121,43 +122,129 @@ for(i in 4:4){
     seed = 7, 
     iter = 10000,
     chain = 4, 
-    cores = 4
+    cores = 4, 
+    control=list(max_treedepth = 12)
   )
 }
+error <- names(warnings())
+out <- file("R/sim-experiment-final_size/mixture-distribution/warnings_noshrinkage.txt")
+writeLines(error, out)
+close(out)
+
 beepr::beep()
 
+#### FIT WITH SHRINKAGE PARAMETERS ---------------------------------------------
+mixture_model_shrinkage <- stan_model("R/sim-experiment-final_size/mixture-distribution/mixture_model_shrinkage.stan")
+
+fit_errors_shrinkage <- vector("list", n_models)
+
+for(i in 1:n_models){
+  warning(paste0("fitting M", i))
+  error_df_sub = error_df %>% 
+    filter(model_id == paste0("M", i)) #%>%
+  #mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
+  # fit with STAN
+  fit_errors_shrinkage[[i]] <- sampling(
+    mixture_model_shrinkage,
+    data = list(
+      N = nrow(error_df_sub),
+      x = error_df_sub$vax_cov,
+      y = error_df_sub$error, 
+      N_new = length(new_vax_cov), 
+      x_new = new_vax_cov
+    ),
+    seed = 7, 
+    iter = 10000,
+    chain = 4, 
+    cores = 4, 
+    control=list(max_treedepth = 12)
+  )
+}
+error <- names(warnings())
+out <- file("R/sim-experiment-final_size/mixture-distribution/warnings_shrinkage.txt")
+writeLines(error, out)
+close(out)
+
 # some summary/diagnostics
-posterior <- as.array(fit_errors[[4]])
-posterior_df <- as.data.frame(fit_errors[[4]])
-np <- nuts_params(fit_errors[[4]])
+posterior <- as.array(fit_errors_hierparams[[4]])
+posterior_df <- as.data.frame(fit_errors_hierparams[[4]])
+np <- nuts_params(fit_errors_hierparams[[4]])
 
-mcmc_pairs(fit_errors[[4]], pars = c("alpha_neg", "beta_neg","lambda_neg", "sigma_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos", "p"), np = np)
+mcmc_pairs(fit_errors_hierparams[[4]], pars = c("alpha_neg", "beta_neg","lambda_neg", "sigma_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos", "p"), np = np)
 
-pars <- bind_cols(extract(fit_errors, c("alpha_pos", "beta_pos", "lambda_pos", "alpha_neg", "beta_neg", "lambda_neg", "p"))) %>% 
-  mutate(draw_id = seq_len(n()))
+  
 
 #### GET PARAMETER ESTIMATES ---------------------------------------------------
 pars_to_extract = c("alpha_pos", "alpha_neg", "beta_pos", "beta_neg", "lambda_pos", "lambda_neg", "p")
 
-mean_ests = lapply(fit_errors, function(i){unlist(lapply(extract(i, pars_to_extract), mean))}) %>%
+pars <- lapply(fit_errors, 
+                         function(i){bind_cols(rstan::extract(i, pars_to_extract)) %>% mutate(draw_id = seq_len(n()))}) %>%
   bind_rows(.id = "model_id") %>%
   mutate(model_id = paste0("M", model_id))
 
+pars_shrinkage <- lapply(fit_errors_shrinkage, 
+                         function(i){bind_cols(rstan::extract(i, pars_to_extract)) %>% mutate(draw_id = seq_len(n()))}) %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id)) d
+
+# plot distributions with and without shrinkage
+bind_rows(pars %>% mutate(fit = "no shrinkage"),
+          pars_shrinkage %>% mutate(fit = "shrinkage")) %>%
+  pivot_longer(!c("fit", "model_id", "draw_id"), names_to = "variable") %>%
+  separate(variable, into = c("variable", "sign")) %>%
+  mutate(sign = ifelse(is.na(sign), "pos", sign)) %>%
+  ggplot(aes(x = value, color = sign, linetype = fit, group = interaction(fit, sign))) +
+  geom_density(linewidth = 0.8) + 
+  # facet_grid(cols = vars(model_id), rows = vars(variable), scales = "free") +
+  facet_wrap(vars(variable,model_id), ncol = 10, scales = "free") +
+  scale_color_brewer(palette = "Set1") + 
+  scale_linetype_manual(values = c("dotted", "solid")) + 
+  theme_bw() +
+  theme(legend.position = "bottom", 
+        panel.grid.minor = element_blank())
+
+# get mean estimates
+mean_ests = lapply(fit_errors, function(i){unlist(lapply(rstan::extract(i, pars_to_extract), mean))}) %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id))
+
+mean_ests_shrink = lapply(fit_errors_shrinkage, function(i){unlist(lapply(rstan::extract(i, pars_to_extract), mean))}) %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id))
 
 #### GET PREDICTION INTERVALS --------------------------------------------------
 pred_intervals <- lapply(fit_errors, summarize_predints, new_vax_cov = new_vax_cov) %>%
   bind_rows(.id = "model_id") %>%
   mutate(model_id = paste0("M", model_id))
 
+pred_intervals_shrink <- lapply(fit_errors_shrinkage, summarize_predints, new_vax_cov = new_vax_cov) %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id))
+
 # nominal scale
-ggplot(data = pred_intervals, aes(x = vax_cov)) + 
-  geom_point(data = error_df, aes(x = vax_cov, y = error), color = "black", shape = 21) + 
-  geom_ribbon(aes(ymin = Q5, ymax = Q95, fill = model_id), alpha = 0.4) + 
-  geom_ribbon(aes(ymin = Q25, ymax = Q75, fill = model_id), alpha = 0.6) + 
-  geom_line(aes(y = Q50, color = model_id), size = 1) + 
+# ggplot(data = pred_intervals_shrink, aes(x = vax_cov)) + 
+#   geom_point(data = error_df, aes(x = vax_cov, y = error), color = "black", shape = 21) + 
+#   geom_ribbon(aes(ymin = Q5, ymax = Q95, fill = model_id), alpha = 0.4) + 
+#   geom_ribbon(aes(ymin = Q25, ymax = Q75, fill = model_id), alpha = 0.6) + 
+#   geom_line(aes(y = Q50, color = model_id), size = 1) + 
+#   facet_wrap(vars(model_id), scales = "free") + 
+#   theme_bw() + 
+#   theme(legend.position = "none")
+
+# predictions with and without shrinkage
+bind_rows(pred_intervals %>% mutate(fit = "no shrinkage"),
+          pred_intervals_shrink %>% mutate(fit = "shrinkage")) %>%
+  ggplot(aes(x = vax_cov, color = model_id)) + 
+  geom_point(data = error_df, aes(x = vax_cov, y = error), color = "darkgray", shape = 21) + 
+  geom_line(aes(y = Q5, linetype = fit), linewidth = 1, alpha = 0.7) +
+  geom_line(aes(y = Q95, linetype = fit), linewidth = 1, alpha = 0.7) +
+  geom_line(aes(y = Q25, linetype = fit), linewidth = 1, alpha = 0.7) +
+  geom_line(aes(y = Q75, linetype = fit), linewidth = 1, alpha = 0.7) +
+  geom_line(aes(y = Q50, linetype = fit), linewidth = 2, alpha = 0.7) +
   facet_wrap(vars(model_id), scales = "free") + 
+  guides(color = FALSE) + 
   theme_bw() + 
-  theme(legend.position = "none")
+  theme(legend.position = "bottom")
 
 # check coverage
 cov = calculate_coverage(
@@ -172,11 +259,33 @@ cov = calculate_coverage(
   summarize_by = "model"
 )
 
-ggplot(data = cov, aes(x = alpha, y = cov, group = model_id)) + 
-  geom_line(aes(color = model_id)) + 
+cov_shrink = calculate_coverage(
+  # do some reshaping to match expected format for quant_fits
+  quant_fits = pred_intervals %>%
+    melt(c("model_id", "vax_cov")) %>% 
+    filter(variable != "mean") %>%
+    mutate(quantile = as.integer(gsub("Q", "", variable))/100) %>%
+    dplyr::select(-variable), 
+  error_df = t_large$errors,  # %>% mutate(error = abs(error))
+  vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+  summarize_by = "model"
+)
+
+# ggplot(data = cov, aes(x = alpha, y = cov, group = model_id)) + 
+#   geom_line(aes(color = model_id)) + 
+#   geom_abline(size = 1) + 
+#   facet_wrap(vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), ncol = 1) + 
+#   labs(x = "expected coverage", y = "actual coverage") + 
+#   theme_bw() + 
+#   theme(legend.position = "none")
+
+bind_rows(cov %>% mutate(fit = "no shrinkage"),
+          cov_shrink %>% mutate(fit = "shrinkage")) %>%
+  ggplot(aes(x = alpha, y = cov, group = interaction(model_id, fit))) + 
+  geom_line(aes(color = model_id, linetype = fit), alpha = 0.7) + 
   geom_abline(size = 1) + 
   facet_wrap(vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), ncol = 1) + 
   labs(x = "expected coverage", y = "actual coverage") + 
   theme_bw() + 
   theme(legend.position = "none")
-
+          
