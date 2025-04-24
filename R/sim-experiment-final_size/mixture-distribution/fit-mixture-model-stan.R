@@ -112,6 +112,7 @@ fit_errors <- vector("list", n_models)
 
 for(i in 1:n_models){
   warning(paste0("fitting M", i))
+  print(paste0("fitting M", i))
   error_df_sub = error_df %>% 
     filter(model_id == paste0("M", i)) #%>%
     #mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
@@ -149,6 +150,7 @@ fit_errors_shrinkage <- vector("list", n_models)
 
 for(i in 1:n_models){
   warning(paste0("fitting M", i))
+  print(paste0("fitting M", i))
   error_df_sub = error_df %>% 
     filter(model_id == paste0("M", i)) #%>%
   #mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
@@ -175,7 +177,7 @@ out <- file("R/sim-experiment-final_size/mixture-distribution/warnings_shrinkage
 writeLines(error, out)
 close(out)
 
-write_rds(fit_errors, "R/sim-experiment-final_size/mixture-distribution/fit_shrinkage.rda")
+write_rds(fit_errors_shrinkage, "R/sim-experiment-final_size/mixture-distribution/fit_shrinkage.rda")
 
 # some summary/diagnostics
 posterior <- as.array(fit_errors_hierparams[[4]])
@@ -271,7 +273,7 @@ cov = calculate_coverage(
 
 cov_shrink = calculate_coverage(
   # do some reshaping to match expected format for quant_fits
-  quant_fits = pred_intervals %>%
+  quant_fits = pred_intervals_shrink %>%
     melt(c("model_id", "vax_cov")) %>% 
     filter(variable != "mean") %>%
     mutate(quantile = as.integer(gsub("Q", "", variable))/100) %>%
@@ -298,4 +300,86 @@ bind_rows(cov %>% mutate(fit = "no shrinkage"),
   labs(x = "expected coverage", y = "actual coverage") + 
   theme_bw() + 
   theme(legend.position = "none")
+
+
+#### REPEAT WITH FEWER LOCATIONS -----------------------------------------------
+# run simulation - using 500 locations for now
+t_small <- full_sim(n_locations = 50, n_models = n_models,
+                    vax_cov_S1 = 0.3, vax_cov_S2 = 0.5,
+                    R0_lwr = 2, R0_upr = 3,
+                    model_bias_ind_sd = 0.05,
+                    seed = seed_id, fit_outcomes = FALSE)
+
+# note: scenario_id = T returns only observed errors (not true errors to test against)
+error_df_small = t_small$errors %>% filter(scenario_id == "T") 
           
+
+#### FIT WITH SHRINKAGE PARAMETERS ---------------------------------------------
+fit_errors_shrinkage_small <- vector("list", n_models)
+
+for(i in 1:n_models){
+  warning(paste0("fitting M", i))
+  print(paste0("fitting M", i))
+  error_df_sub = error_df_small %>% 
+    filter(model_id == paste0("M", i)) #%>%
+  #mutate(error_boxcox = ifelse(error < 0, boxcox_transform(-error, lambda), boxcox_transform(error, lambda)))
+  # fit with STAN
+  fit_errors_shrinkage_small[[i]] <- sampling(
+    mixture_model_shrinkage,
+    data = list(
+      N = nrow(error_df_sub),
+      x = error_df_sub$vax_cov,
+      y = error_df_sub$error, 
+      N_new = length(new_vax_cov), 
+      x_new = new_vax_cov
+    ),
+    seed = 7, 
+    iter = 10000,
+    chain = 4, 
+    cores = 4, 
+    control=list(max_treedepth = 12)
+  )
+}
+
+error <- names(warnings())
+out <- file("R/sim-experiment-final_size/mixture-distribution/small_warnings_shrinkage.txt")
+writeLines(error, out)
+close(out)
+
+write_rds(fit_errors_shrinkage_small, "R/sim-experiment-final_size/mixture-distribution/small_fit_shrinkage.rda")
+
+#### GET PREDICTION INTERVALS --------------------------------------------------
+pred_intervals_shrink_small <- lapply(fit_errors_shrinkage_small, summarize_predints, new_vax_cov = new_vax_cov) %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id))
+
+# nominal scale
+ggplot(data = pred_intervals_shrink_small, aes(x = vax_cov)) +
+  geom_point(data = error_df_small, aes(x = vax_cov, y = error), color = "black", shape = 21) +
+  geom_ribbon(aes(ymin = Q5, ymax = Q95, fill = model_id), alpha = 0.4) +
+  geom_ribbon(aes(ymin = Q25, ymax = Q75, fill = model_id), alpha = 0.6) +
+  geom_line(aes(y = Q50, color = model_id), size = 1) +
+  facet_wrap(vars(model_id), scales = "free") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+cov_shrink_small = calculate_coverage(
+  # do some reshaping to match expected format for quant_fits
+  quant_fits = pred_intervals_shrink_small %>%
+    melt(c("model_id", "vax_cov")) %>% 
+    filter(variable != "mean") %>%
+    mutate(quantile = as.integer(gsub("Q", "", variable))/100) %>%
+    dplyr::select(-variable), 
+  error_df = t_small$errors,  # %>% mutate(error = abs(error))
+  vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
+  summarize_by = "model"
+)
+
+ggplot(data = cov_shrink_small, aes(x = alpha, y = cov, group = model_id)) +
+  geom_line(aes(color = model_id)) +
+  geom_abline(size = 1) +
+  facet_wrap(vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), ncol = 1) +
+  labs(x = "expected coverage", y = "actual coverage") +
+  theme_bw() +
+  theme(legend.position = "none")
+
