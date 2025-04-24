@@ -84,10 +84,12 @@ model {
 generated quantities { // for prediction intervals
   vector[N_new] y_new;
   vector[N_new] y_new_nominal;
+  vector<lower=0,upper=1>[N_new] y_exclude;
   real<lower=0,upper=1> pos_flag; 
   
   for (n in 1:N_new){
     pos_flag = bernoulli_rng(p);
+    y_exclude[n] = 0;
     if(pos_flag){
       y_new[n] = normal_rng(alpha_pos + x_new[n] * beta_pos, sigma_pos);
       if(lambda_pos == 0){
@@ -95,7 +97,8 @@ generated quantities { // for prediction intervals
       }
       else{
         if((lambda_pos * y_new[n] + 1) < 0){
-          y_new_nominal[n] = 0; // double check this is the assumption we want to make
+          y_new_nominal[n] = 0;
+          y_exclude[n] = 1;
         }
         else{
           y_new_nominal[n] = (lambda_pos * y_new[n] + 1)^(1/lambda_pos);
@@ -109,7 +112,8 @@ generated quantities { // for prediction intervals
       }
       else{
         if((lambda_neg * y_new[n] + 1) < 0){
-          y_new_nominal[n] = 0; // double check this is the assumption we want to make
+          y_new_nominal[n] = 0; 
+          y_exclude[n] = 1;
         }
         else{
           y_new_nominal[n] = -1*((lambda_neg * y_new[n] + 1)^(1/lambda_neg));

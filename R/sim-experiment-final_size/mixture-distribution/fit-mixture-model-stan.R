@@ -18,9 +18,14 @@ inverse_boxcox <- function(y_trans, lambda) {
 }
 
 summarize_predints <- function(fit, new_vax_cov){
+  y_exclude = filter_posterior(as.data.frame(fit), "y_exclude\\[") %>%
+    rename(exclude = value) %>%
+    dplyr::select(-variable)
   y_nominal = filter_posterior(as.data.frame(fit), "y_new_nominal\\[") %>%
+    left_join(y_exclude) %>%
     left_join(data.frame(index_id = 1:length(new_vax_cov), 
                          vax_cov = new_vax_cov)) %>%
+    filter(exclude == 0) %>%
     summarize(Q5 = quantile(value, 0.05), 
               Q10 = quantile(value, 0.10),
               Q15 = quantile(value, 0.15), 
@@ -54,6 +59,7 @@ library(MASS)
 library(rstan)
 library(rstanarm)
 library(bayesplot)
+library(readr)
 
 source("./R/final-size-functions.R")
 
@@ -91,7 +97,7 @@ error_df = t_large$errors %>% filter(scenario_id == "T")
 # bx = boxcox(error ~ vax_cov, data = error_df_sub, plotit = FALSE)
 # lambda = with(bx, x[which.max(y)])
 # 
-error_df_sub$error_boxcox = ifelse(error_df_sub < 0, boxcox_transform(-error_df_sub$error, lambda), boxcox_transform(error_df_sub$error, lambda))
+# error_df_sub$error_boxcox = ifelse(error_df_sub < 0, boxcox_transform(-error_df_sub$error, lambda), boxcox_transform(error_df_sub$error, lambda))
 # 
 # ggplot(data = error_df_sub, aes(x = vax_cov, y = error_boxcox)) + 
 #   geom_point()
@@ -131,6 +137,9 @@ out <- file("R/sim-experiment-final_size/mixture-distribution/warnings_noshrinka
 writeLines(error, out)
 close(out)
 
+write_rds(fit_errors, "R/sim-experiment-final_size/mixture-distribution/fit_noshrinkage.rda")
+
+
 beepr::beep()
 
 #### FIT WITH SHRINKAGE PARAMETERS ---------------------------------------------
@@ -160,10 +169,13 @@ for(i in 1:n_models){
     control=list(max_treedepth = 12)
   )
 }
+
 error <- names(warnings())
 out <- file("R/sim-experiment-final_size/mixture-distribution/warnings_shrinkage.txt")
 writeLines(error, out)
 close(out)
+
+write_rds(fit_errors, "R/sim-experiment-final_size/mixture-distribution/fit_shrinkage.rda")
 
 # some summary/diagnostics
 posterior <- as.array(fit_errors_hierparams[[4]])
@@ -171,8 +183,6 @@ posterior_df <- as.data.frame(fit_errors_hierparams[[4]])
 np <- nuts_params(fit_errors_hierparams[[4]])
 
 mcmc_pairs(fit_errors_hierparams[[4]], pars = c("alpha_neg", "beta_neg","lambda_neg", "sigma_neg","lambda_pos", "alpha_pos", "beta_pos", "sigma_pos", "p"), np = np)
-
-  
 
 #### GET PARAMETER ESTIMATES ---------------------------------------------------
 pars_to_extract = c("alpha_pos", "alpha_neg", "beta_pos", "beta_neg", "lambda_pos", "lambda_neg", "p")
@@ -185,7 +195,7 @@ pars <- lapply(fit_errors,
 pars_shrinkage <- lapply(fit_errors_shrinkage, 
                          function(i){bind_cols(rstan::extract(i, pars_to_extract)) %>% mutate(draw_id = seq_len(n()))}) %>%
   bind_rows(.id = "model_id") %>%
-  mutate(model_id = paste0("M", model_id)) d
+  mutate(model_id = paste0("M", model_id))
 
 # plot distributions with and without shrinkage
 bind_rows(pars %>% mutate(fit = "no shrinkage"),
