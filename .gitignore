@@ -4,3 +4,4 @@
 .Ruserdata
 .DS_Store
 scenario-eval-theory.Rproj
+*.rda
