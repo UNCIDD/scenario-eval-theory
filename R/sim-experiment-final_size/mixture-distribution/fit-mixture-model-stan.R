@@ -401,7 +401,7 @@ mod_results = ggplot(data = pred_intervals_shrink_small %>% filter(model_id == m
   geom_text(data = error_df_small%>% 
               filter(model_id == model_to_plot, location_id %in% locs_to_plot) %>% 
               mutate(loc_lab = loc_labs[which(locs_to_plot == location_id)], .by = "location_id"),
-            aes(y = error, label = loc_lab), size = 2, color = "white") +
+            aes(y = error, label = loc_lab), size = 1.8, color = "white") +
   facet_wrap(vars(model_id), scales = "free") +
   labs(x = "realized vaccine uptake\n(scenario axis)") +
   scale_color_manual(values = loc_cols) +
@@ -422,18 +422,18 @@ loc_results = ggplot(data = t_small$model_sims %>%
               filter(model_id == model_to_plot, location_id %in% locs_to_plot) %>%
               mutate(location_id = factor(location_id, levels = locs_to_plot)), 
              aes(x = vax_cov, y = final_size), alpha = 0.2) + 
-  geom_point(aes(x = vax_cov, y = final_size, shape = scenario_id, fill = scenario_id), color = 'black', size = 3) +
+  geom_point(aes(x = vax_cov, y = final_size, shape = scenario_id, fill = scenario_id), color = 'black', size = 2) +
   geom_text(data = data.frame(location_id = locs_to_plot, 
                               location_lab = loc_labs) %>%
               mutate(location_id = factor(location_id, levels = locs_to_plot)),
             aes(x = Inf, y = Inf, label = paste0("location ", location_lab), color = as.factor(location_id)), 
-            hjust = 1, vjust = 1, size = 5) +
+            hjust = 1, vjust = 1, size = 3.5) +
   geom_point(data = t_small$true_sims %>% filter(location_id %in% locs_to_plot, scenario_id == "T"), 
-             aes(x = vax_cov, y = true_final_size), color = "red", size = 3) + 
+             aes(x = vax_cov, y = true_final_size), color = "red", size = 2) + 
   geom_segment(data = left_join(
     t_small$model_sims %>% filter(model_id == model_to_plot, location_id %in% locs_to_plot, scenario_id == "T"),
     t_small$true_sims %>% filter(location_id %in% locs_to_plot, scenario_id == "T")
-  ), aes(x = vax_cov, xend = vax_cov, y = true_final_size, yend = final_size), arrow = arrow(length = unit(0.03, "npc"))) +
+  ), aes(x = vax_cov, xend = vax_cov, y = true_final_size, yend = final_size), arrow = arrow(length = unit(0.05, "npc")), size = 0.4) +
   facet_wrap(vars(location_id), ncol = 1) +
   labs(x = "realized vaccine uptake\n(scenario axis)", 
        y = "cumulative hospitalizations\n(projection axis)") +
@@ -447,7 +447,8 @@ loc_results = ggplot(data = t_small$model_sims %>%
         strip.text = element_blank())
 loc_results
 
-cowplot::plot_grid(loc_results, mod_results, rel_widths = c(0.3, 0.7))
+cowplot::plot_grid(loc_results, mod_results, rel_widths = c(0.32, 0.68), 
+                   labels = c("A", "B"))
 
-ggsave("R/sim-experiment-final_size/mixture-distribution/approach_illustration.pdf", width = 7, height = 3.5)
+ggsave("R/sim-experiment-final_size/mixture-distribution/approach_illustration.pdf", width = 7, height = 3.75)
 
