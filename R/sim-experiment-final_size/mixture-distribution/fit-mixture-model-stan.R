@@ -587,3 +587,69 @@ ggplot(data = rand_ks_rslt, aes(x = scenario_id, y = ks_statistic)) +
   theme(legend.position = "bottom", 
         panel.grid = element_blank())
 
+
+### FIT OBSERVATIONS (INSTEAD OF ERRORS) ---------------------------------------
+obs_df_small = t_small$true_sims %>%
+  filter(scenario_id == "T")
+
+ggplot(data = obs_df_small, aes(x = vax_cov,  y = true_final_size)) + 
+  geom_point()
+
+hist(obs_df_small$true_final_size)
+
+qqnorm(obs_df_small$true_final_size)
+qqline(obs_df_small$true_final_size)
+
+# log transform doesn't work
+qqnorm(log(obs_df_small$true_final_size))
+qqline(log(obs_df_small$true_final_size))
+
+# sqrt transform doesn't work
+qqnorm(sqrt(obs_df_small$true_final_size))
+qqline(sqrt(obs_df_small$true_final_size))
+
+# normalization doesn't work
+qqnorm(scale(obs_df_small$true_final_size))
+qqline(scale(obs_df_small$true_final_size))
+
+# try box-cox, maybe slightly better
+qqnorm(bestNormalize::boxcox(obs_df_small$true_final_size)$x.t)
+qqline(bestNormalize::boxcox(obs_df_small$true_final_size)$x.t)
+
+bx = boxcox(true_final_size ~ vax_cov, data = obs_df_small, plotit = TRUE)
+lambda = with(bx, x[which.max(y)])
+lm_obs = lm(boxcox_transform(true_final_size, lambda) ~ vax_cov, data = obs_df_small)
+pred <- vector("list", length(alphas))
+for(i in 1:length(alphas)){
+  pred[[i]] <- predict(lm_obs, newdata = data.frame(vax_cov = seq(0.3, 0.5, length.out = 100)), 
+                  level = alphas[i], interval = "prediction") %>%
+    as.data.frame() %>% 
+    mutate(vax_cov = seq(0.3, 0.5, length.out = 100), 
+           alpha = alphas[i],
+           fit = inverse_boxcox(fit, lambda),
+           lwr = inverse_boxcox(lwr, lambda), 
+           upr = inverse_boxcox(upr, lambda))
+}
+pred_nominal = bind_rows(pred) %>% 
+  reshape2::melt(c("vax_cov", "fit", "alpha")) %>%
+  mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2))
+
+plot(lm_obs)
+
+# let's see the fit
+ggplot(data = pred[[which(alphas == 0.95)]], aes(x = vax_cov)) +
+  geom_line(aes(y = fit)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) + 
+  geom_point(data = obs_df_small, aes(y = true_final_size))
+
+# let's look at how well it predicts the true observed distribution
+cov_obs = bind_rows(pred) %>%
+  filter(vax_cov == 0.3, alpha != 0) %>%
+  left_join(t_small$true_sims %>% filter(scenario_id == "S1"), relationship = "many-to-many") %>%
+  mutate(cov = ifelse(true_final_size <= upr & true_final_size >= lwr, 1, 0)) %>%
+  summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha"))
+
+ggplot(data = cov_obs, aes(x = alpha, y = cov)) + 
+  geom_abline(linetype = "dashed") + 
+  geom_line()
+
