@@ -17,7 +17,7 @@ inverse_boxcox <- function(y_trans, lambda) {
   if (lambda == 0) exp(y_trans) else (lambda * y_trans + 1)^(1/lambda)
 }
 
-summarize_predints <- function(fit, new_vax_cov){
+get_preds <- function(fit, new_vax_cov){
   y_exclude = filter_posterior(as.data.frame(fit), "y_exclude\\[") %>%
     rename(exclude = value) %>%
     dplyr::select(-variable)
@@ -25,7 +25,12 @@ summarize_predints <- function(fit, new_vax_cov){
     left_join(y_exclude) %>%
     left_join(data.frame(index_id = 1:length(new_vax_cov), 
                          vax_cov = new_vax_cov)) %>%
-    filter(exclude == 0) %>%
+    filter(exclude == 0)
+  return(y_nominal)
+}
+
+summarize_predints <- function(fit, new_vax_cov){
+  y_nominal = get_preds(fit, new_vax_cov) %>%
     summarize(Q5 = quantile(value, 0.05), 
               Q10 = quantile(value, 0.10),
               Q15 = quantile(value, 0.15), 
@@ -377,10 +382,14 @@ cov_shrink_small = calculate_coverage(
 ggplot(data = cov_shrink_small, aes(x = alpha, y = cov, group = model_id)) +
   geom_line(aes(color = model_id)) +
   geom_abline(size = 1) +
-  facet_wrap(vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), ncol = 1) +
+  facet_wrap(vars(scenario_id), labeller = labeller(scenario_id = scenario_labs), ncol = 2) +
   labs(x = "expected coverage", y = "actual coverage") +
   theme_bw() +
-  theme(legend.position = "none")
+  theme(legend.position = "none", 
+        legend.title = element_blank(),
+        panel.grid = element_blank(),
+        strip.background = element_blank())
+ggsave("R/sim-experiment-final_size/mixture-distribution/coverage_nlocationssmall.pdf", width = 5, height = 3)
 
 #### MAKE A FIGURE TO ILLUSTRATE THE APPROACH ----------------------------------
 locs_to_plot = c(29, 5, 45)
@@ -451,4 +460,130 @@ cowplot::plot_grid(loc_results, mod_results, rel_widths = c(0.32, 0.68),
                    labels = c("A", "B"))
 
 ggsave("R/sim-experiment-final_size/mixture-distribution/approach_illustration.pdf", width = 7, height = 3.75)
+
+#### EXAMPLE SCENARIO ERROR CALCULATION ----------------------------------------
+# total error = calibration error + scenario error
+# calibration error: estimated by the STAN fits
+# total error (can be calculated directly)
+# thus, scenario error = total error - calibration error
+calibration_error <- lapply(fit_errors_shrinkage_small, get_preds, new_vax_cov = new_vax_cov)
+total_error = t_small$model_sims %>% 
+  filter(scenario_id %in% c("S1", "S2")) %>%
+  dplyr::select(model_id, location_id, scenario_id, final_size) %>%
+  left_join(t_small$true_sims %>% filter(scenario_id == c("T")) %>%
+              dplyr::select(-scenario_id)) %>%
+  mutate(total_error = final_size - true_final_size) %>% 
+  dplyr::select(model_id, location_id, scenario_id, total_error)
+
+scenario_error = calibration_error[as.integer(substr(model_to_plot,2,2))][[1]] %>%
+  dplyr::select(-draw_id, -variable, -exclude) %>%
+  rename(calibration_error = value) %>%
+  mutate(scenario_id = ifelse(vax_cov == new_vax_cov[1], "S1", "S2"), 
+         model_id = model_to_plot) %>%
+  left_join(total_error %>% filter(model_id == model_to_plot), 
+            relationship = "many-to-many", by = join_by(model_id, scenario_id)) %>%
+  mutate(scenario_error = total_error - calibration_error)
+
+scenario_error %>% 
+  filter(!is.na(scenario_error)) %>%
+  summarize(median = median(scenario_error), 
+            lwr = quantile(scenario_error, 0.05), 
+            upr = quantile(scenario_error, 0.95), 
+            .by = c("scenario_id", "location_id", "model_id")) %>%
+  mutate(true_slope = true_slope[location_id]) %>%
+  ggplot(aes(x = true_slope, color = as.factor(location_id))) + 
+  geom_hline(aes(yintercept = 0)) + 
+  geom_point(aes(y = median), size = 3) + 
+  geom_segment(aes(xend = true_slope, y = lwr, yend = upr), size = 1) + 
+  geom_text(aes(y = median, label = location_id), size = 2.5, color = "white") + 
+  facet_grid(cols = vars(model_id), rows = vars(scenario_id)) + 
+  labs(x = "true slope of relationship in location", y = "scenario error") +
+  theme_bw() + 
+  theme(legend.position = "none", 
+        panel.grid.minor = element_blank())
+
+
+#### ESTIMATED ERROR DISTRIBUTION FOR EACH MODEL -------------------------------
+# QUESTION: are we implicitly using different "observation distributions" for
+# each model? 
+calibration_error %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id)) %>%
+  left_join(t_small$model_sims, 
+            relationship = "many-to-many") %>%
+  mutate(obs_est = final_size - value) %>%
+  filter(scenario_id %in% c("S1", "S2"), obs_est < 1, obs_est > 0) %>%
+  ggplot() + 
+  geom_histogram(aes(x = obs_est, y = after_stat(density), fill = model_id)) + 
+  geom_density(data = t_small$true_sims %>% filter(scenario_id %in% c("S1", "S2")), 
+               aes(x = true_final_size), color = "black", size = 1) +
+  facet_grid(cols = vars(scenario_id), rows = vars(model_id), scales = "free") +
+   theme_bw() + 
+  theme(legend.position = 'none')
+
+# use KS test (vs. 50 random draws from the distribution)
+true_obs_S1 = t_small$true_sims %>% 
+  filter(scenario_id  == "S1") %>%
+  pull(true_final_size)
+true_obs_S2 = t_small$true_sims %>% 
+  filter(scenario_id  == "S2") %>%
+  pull(true_final_size)
+
+est_obs_S1 = calibration_error %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id)) %>%
+  left_join(t_small$model_sims, 
+            relationship = "many-to-many") %>%
+  mutate(obs_est = final_size - value) %>%
+  filter(scenario_id == "S1",  obs_est < 1, obs_est > 0) # think about implications of this exclusion
+est_obs_S2 = calibration_error %>%
+  bind_rows(.id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id)) %>%
+  left_join(t_small$model_sims, 
+            relationship = "many-to-many") %>%
+  mutate(obs_est = final_size - value) %>%
+  filter(scenario_id == "S2", obs_est < 1, obs_est > 0)
+
+
+mod_ks_rslt = vector("list", n_models)
+for(i in 1:n_models){
+  print(i)
+  mod_ks_rslt[[i]] = data.frame(scenario_id = c("S1", "S2"), 
+                         ks_statistic = NA, 
+                         ks_pvalue = NA)
+  ks_S1 = ks.test(est_obs_S1 %>% filter(model_id == paste0("M", i)) %>% pull(obs_est), 
+                  true_obs_S1)
+  ks_S2 = ks.test(est_obs_S2 %>% filter(model_id == paste0("M", i)) %>% pull(obs_est), 
+                  true_obs_S2)
+  mod_ks_rslt[[i]][, "ks_statistic"] = c(ks_S1$statistic, ks_S2$statistic)
+  mod_ks_rslt[[i]][, "ks_pvalue"] = c(ks_S1$p.value, ks_S2$p.value)
+ }
+mod_ks_rslt = bind_rows(mod_ks_rslt, .id = "model_id") %>%
+  mutate(model_id = paste0("M", model_id))
+
+set.seed(222)
+n_rand_samp = 100
+rand_ks_rslt = vector("list", n_rand_samp)
+for(j in 1:n_rand_samp){
+  rand_ks_rslt[[j]] = data.frame(scenario_id = c("S1", "S2"), 
+                                ks_statistic = NA, 
+                                ks_pvalue = NA)
+  rand_samp_S1 = sample(true_obs_S1, length(true_obs_S1), replace = TRUE)
+  rand_samp_S2 = sample(true_obs_S2, length(true_obs_S2), replace = TRUE)
+  ks_S1 = ks.test(rand_samp_S1, true_obs_S1)
+  ks_S2 = ks.test(rand_samp_S2, true_obs_S2)
+  rand_ks_rslt[[j]][, "ks_statistic"] = c(ks_S1$statistic, ks_S2$statistic)
+  rand_ks_rslt[[j]][, "ks_pvalue"] = c(ks_S1$p.value, ks_S2$p.value)
+}
+rand_ks_rslt = bind_rows(rand_ks_rslt, .id = "rand_id")
+
+# plot random results and individual model results
+ggplot(data = rand_ks_rslt, aes(x = scenario_id, y = ks_statistic)) +
+  geom_violin(alpha = 0.25, fill = "gray", color = NA) +
+  geom_point(position = position_jitter(seed = 1, width = 0.2), shape = 21) + 
+  geom_point(data = mod_ks_rslt, aes(color = model_id), 
+             position = position_jitter(seed = 1, width = 0.2), size = 2) + 
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        panel.grid = element_blank())
 
