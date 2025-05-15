@@ -86,10 +86,11 @@ full_sim <- function(
                                     vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
                                     model_bias_R0_mean, model_bias_R0_sd, 
                                     model_bias_ind_sd)
-  model_sims = sims %>% filter(model_id != "T")
+  model_sims = sims %>% filter(model_id != "T") %>%
+    dplyr::select(-location_R0)
   true_sims = sims %>% filter(model_id == "T") %>%
     rename(true_final_size = final_size) %>%
-    dplyr::select(location_id, scenario_id, vax_cov, true_final_size)
+    dplyr::select(location_id, scenario_id, location_R0, vax_cov, true_final_size)
   errors <- calculate_errors(model_sims, true_sims)$errors
   if(fit_outcomes){
     quant_reg_est <- estimate_w_gamlss(vax_cov_S1 = vax_cov_S1, 
@@ -157,7 +158,7 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
     mutate(scenario_id = "E")
   sims <- bind_rows(sims, sims_full_relationship) %>% 
     # add model bias
-    left_join(model_loc_R0[, c("model_id", "location_id", "R0")])
+    left_join(model_loc_R0[, c("model_id", "location_id", "location_R0", "R0")])
   sims$final_size = NA
   # final size variables
   susc_immunised <- cbind(1,0)
