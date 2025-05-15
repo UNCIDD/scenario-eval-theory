@@ -653,3 +653,70 @@ ggplot(data = cov_obs, aes(x = alpha, y = cov)) +
   geom_abline(linetype = "dashed") + 
   geom_line()
 
+# so not great, let's try incorporating R0 into the model
+ggplot(data = obs_df_small, aes(x = vax_cov, y = location_R0)) + 
+  geom_point()
+
+ggplot(data = obs_df_small, aes(x = vax_cov, y = true_final_size, color = location_R0)) + 
+  geom_point() +
+  geom_line(data = t_small$true_sims, aes(group = location_id), alpha = 0.4) +
+  scale_color_viridis_c() + 
+  theme_bw()
+
+bx_wR0 = boxcox(true_final_size ~ vax_cov + location_R0, lambda = seq(-3, 3, 1/10), data = obs_df_small, plotit = TRUE)
+lambda_wR0 = with(bx_wR0, x[which.max(y)])
+lm_obs_wR0 = lm(boxcox_transform(true_final_size, lambda_wR0) ~ vax_cov + location_R0, data = obs_df_small) 
+
+ggplot(data = obs_df_small, aes(x = vax_cov, y = boxcox_transform(true_final_size, lambda_wR0), color = location_R0)) + 
+  geom_point() +
+  geom_line(data = t_small$true_sims, aes(group = location_id), alpha = 0.4) +
+  scale_color_viridis_c() + 
+  theme_bw()
+
+plot(lm_obs_wR0)
+
+crPlots(lm_obs_wR0)
+
+# get prediction intervals
+pred_mat = expand.grid(vax_cov = seq(0.3, 0.5, length.out = 100), 
+                       location_id = unique(obs_df_small$location_id)) %>%
+  left_join(unique(obs_df_small %>% dplyr::select(location_id, location_R0)))
+
+pred <- vector("list", length(alphas))
+for(i in 1:length(alphas)){
+  pred[[i]] <- predict(lm_obs, newdata = pred_mat, 
+                       level = alphas[i], interval = "prediction") %>%
+    as.data.frame() %>% 
+    mutate(
+      vax_cov = pred_mat$vax_cov, 
+      location_id = pred_mat$location_id, 
+      location_R0 = pred_mat$location_R0,
+      alpha = alphas[i],
+      fit = inverse_boxcox(fit, lambda_wR0),
+      lwr = inverse_boxcox(lwr, lambda_wR0), 
+      upr = inverse_boxcox(upr, lambda_wR0))
+}
+
+pred_nominal = bind_rows(pred) %>% 
+  reshape2::melt(c("vax_cov", "location_id", "location_R0", "fit", "alpha")) %>%
+  mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2))
+
+bind_rows(pred) %>% filter(alpha == 0.5) %>% 
+  mutate(lwr = ifelse(is.na(lwr), 0, lwr)) %>%
+  ggplot(aes(x = vax_cov)) + 
+  geom_line(aes(y = fit), color = "darkgray") + 
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) + 
+  geom_line(data = t_small$true_sims, aes(y = true_final_size, color = location_R0)) +
+  facet_wrap(vars(paste0("R0: ", round(location_R0, 2), ", location ", location_id))) + 
+  scale_color_viridis_c() + 
+  theme_bw() + 
+  theme(panel.grid = element_blank(), 
+        legend.position = "none")
+
+
+
+# not great, with or without interactions
+# so now let's try GAM instead
+gam_obs_wR0 = gam(true_final_size ~ s(vax_cov) + s(location_R0), data = obs_df_small)
+
+gam.check(gam_obs_wR0)
