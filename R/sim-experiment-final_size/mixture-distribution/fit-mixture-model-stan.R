@@ -352,6 +352,8 @@ close(out)
 
 write_rds(fit_errors_shrinkage_small, "R/sim-experiment-final_size/mixture-distribution/small_fit_shrinkage.rda")
 
+fit_errors_shrinkage_small <- read_rds("R/sim-experiment-final_size/mixture-distribution/small_fit_shrinkage.rda")
+
 #### GET PREDICTION INTERVALS --------------------------------------------------
 pred_intervals_shrink_small <- lapply(fit_errors_shrinkage_small, summarize_predints, new_vax_cov = new_vax_cov) %>%
   bind_rows(.id = "model_id") %>%
@@ -626,13 +628,14 @@ for(i in 1:length(alphas)){
     as.data.frame() %>% 
     mutate(vax_cov = seq(0.3, 0.5, length.out = 100), 
            alpha = alphas[i],
-           fit = inverse_boxcox(fit, lambda),
-           lwr = inverse_boxcox(lwr, lambda), 
-           upr = inverse_boxcox(upr, lambda))
+           fit = ifelse(is.na(inverse_boxcox(fit, lambda)), 0, inverse_boxcox(fit, lambda)),
+           lwr = ifelse(is.na(inverse_boxcox(lwr, lambda)), 0, inverse_boxcox(lwr, lambda)), 
+           upr = ifelse(is.na(inverse_boxcox(upr, lambda)), 0, inverse_boxcox(upr, lambda)))
 }
 pred_nominal = bind_rows(pred) %>% 
   reshape2::melt(c("vax_cov", "fit", "alpha")) %>%
-  mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2))
+  mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2), 
+         )
 
 plot(lm_obs)
 
@@ -640,18 +643,22 @@ plot(lm_obs)
 ggplot(data = pred[[which(alphas == 0.95)]], aes(x = vax_cov)) +
   geom_line(aes(y = fit)) +
   geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) + 
-  geom_point(data = obs_df_small, aes(y = true_final_size))
+  geom_point(data = obs_df_small, aes(y = true_final_size)) + 
+  ggtitle("without R0 predictor") + 
+  labs(x = "vaccination coverage", y = "final size") + 
+  theme_bw()
 
 # let's look at how well it predicts the true observed distribution
 cov_obs = bind_rows(pred) %>%
-  filter(vax_cov == 0.3, alpha != 0) %>%
-  left_join(t_small$true_sims %>% filter(scenario_id == "S1"), relationship = "many-to-many") %>%
+  filter(vax_cov %in% c(0.3, 0.5), alpha != 0) %>%
+  left_join(t_small$true_sims %>% filter(scenario_id %in% c("S1", "S2")), relationship = "many-to-many") %>%
   mutate(cov = ifelse(true_final_size <= upr & true_final_size >= lwr, 1, 0)) %>%
   summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha"))
 
 ggplot(data = cov_obs, aes(x = alpha, y = cov)) + 
   geom_abline(linetype = "dashed") + 
-  geom_line()
+  geom_line() + 
+  facet_wrap(vars(scenario_id))
 
 # so not great, let's try incorporating R0 into the model
 ggplot(data = obs_df_small, aes(x = vax_cov, y = location_R0)) + 
@@ -682,41 +689,35 @@ pred_mat = expand.grid(vax_cov = seq(0.3, 0.5, length.out = 100),
                        location_id = unique(obs_df_small$location_id)) %>%
   left_join(unique(obs_df_small %>% dplyr::select(location_id, location_R0)))
 
-pred <- vector("list", length(alphas))
+pred_wR0 <- vector("list", length(alphas))
 for(i in 1:length(alphas)){
-  pred[[i]] <- predict(lm_obs, newdata = pred_mat, 
+  # if(alphas[i] == 0.5){browser()}
+  pred_wR0[[i]] <- predict(lm_obs_wR0, newdata = pred_mat, 
                        level = alphas[i], interval = "prediction") %>%
     as.data.frame() %>% 
+    bind_cols(pred_mat) %>%
     mutate(
-      vax_cov = pred_mat$vax_cov, 
-      location_id = pred_mat$location_id, 
-      location_R0 = pred_mat$location_R0,
       alpha = alphas[i],
-      fit = inverse_boxcox(fit, lambda_wR0),
-      lwr = inverse_boxcox(lwr, lambda_wR0), 
-      upr = inverse_boxcox(upr, lambda_wR0))
+      fit = ifelse(is.na(inverse_boxcox(fit, lambda_wR0)), 0, inverse_boxcox(fit, lambda_wR0)),
+      lwr = ifelse(is.na(inverse_boxcox(lwr, lambda_wR0)), 0, inverse_boxcox(lwr, lambda_wR0)), 
+      upr = ifelse(is.na(inverse_boxcox(upr, lambda_wR0)), 0, inverse_boxcox(upr, lambda_wR0)))
 }
 
-pred_nominal = bind_rows(pred) %>% 
+pred_nominal_wR0 = bind_rows(pred_wR0) %>% 
   reshape2::melt(c("vax_cov", "location_id", "location_R0", "fit", "alpha")) %>%
   mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2))
 
-bind_rows(pred) %>% filter(alpha == 0.5) %>% 
+
+bind_rows(pred_wR0) %>% filter(alpha == 0.95) %>% 
   mutate(lwr = ifelse(is.na(lwr), 0, lwr)) %>%
   ggplot(aes(x = vax_cov)) + 
-  geom_line(aes(y = fit), color = "darkgray") + 
-  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) + 
+  geom_line(aes(y = fit), color = "darkgray") +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) +
   geom_line(data = t_small$true_sims, aes(y = true_final_size, color = location_R0)) +
   facet_wrap(vars(paste0("R0: ", round(location_R0, 2), ", location ", location_id))) + 
+  labs(x = "vaccination coverage", y = "final size") + 
   scale_color_viridis_c() + 
   theme_bw() + 
   theme(panel.grid = element_blank(), 
         legend.position = "none")
 
-
-
-# not great, with or without interactions
-# so now let's try GAM instead
-gam_obs_wR0 = gam(true_final_size ~ s(vax_cov) + s(location_R0), data = obs_df_small)
-
-gam.check(gam_obs_wR0)
