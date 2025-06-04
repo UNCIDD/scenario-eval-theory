@@ -868,3 +868,34 @@ fit_obs_wR0_errors = fit_obs_wR0_samp %>%
 fit_obs_wR0_errorints = fit_obs_wR0_errors %>% 
   reframe(quantile = quantiles, 
           est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id"))
+
+# plot some outcomes
+all_preds = fit_obs_noR0_errorints %>%
+  mutate(method = "fit observations without R0") %>%
+  bind_rows(
+    fit_obs_wR0_errorints %>%
+      mutate(method = "fit observations with R0")
+  ) %>%
+  bind_rows(
+    pred_intervals_shrink_small %>%
+      filter(vax_cov %in% c(0.3, 0.5)) %>% 
+      melt(c("model_id", "vax_cov"), variable.name = "quantile", value.name = "est_error") %>%
+      mutate(scenario_id = ifelse(vax_cov == 0.3, "S1", "S2"), 
+             quantile = as.double(substr(quantile, 2, nchar(as.character(quantile))))/100,
+             method = "estimate error") 
+  ) %>%
+  bind_rows(
+    t_small$errors %>%
+      reframe(quantile = quantiles, 
+              est_error = quantile(error, quantiles), .by = c("model_id", "scenario_id", "vax_cov")) %>%
+      mutate(method = "true error")
+  )
+
+ggplot(data = all_preds %>% filter(scenario_id %in% c("S1")), 
+       aes(x = est_error, y = quantile, color = method)) + 
+  geom_path() + 
+  facet_wrap(vars(model_id), scales = "free") + 
+  scale_color_manual(values = c(RColorBrewer::brewer.pal(3, "Dark2"), "black")) + 
+  theme_bw() + 
+  theme(legend.position = "bottom")
+
