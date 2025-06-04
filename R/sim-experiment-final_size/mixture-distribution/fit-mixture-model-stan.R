@@ -899,3 +899,41 @@ ggplot(data = all_preds %>% filter(scenario_id %in% c("S1")),
   theme_bw() + 
   theme(legend.position = "bottom")
 
+
+### COMPARE PERFORMANCE WHEN FITTING ERROR VS. FITTING OBSERVATIONS ------------
+cov_noR0_errors = fit_obs_noR0_errors %>% 
+  filter(!is.na(model_id)) %>%
+  reframe(quantile = quantiles, 
+          est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id")) %>% # IS THIS RIGHT?
+  filter(quantile != 0.5) %>%
+  mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
+         range = ifelse(quantile < 0.5, "lwr", "upr"))  %>%
+  dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")), relationship = "many-to-many") %>%
+  mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
+  summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha", "model_id"))
+
+cov_wR0_errors = fit_obs_wR0_errors %>% 
+  filter(!is.na(model_id)) %>%
+  reframe(quantile = quantiles, 
+          est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id")) %>% # IS THIS RIGHT?
+  filter(quantile != 0.5) %>%
+  mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
+         range = ifelse(quantile < 0.5, "lwr", "upr"))  %>%
+  dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")), relationship = "many-to-many") %>%
+  mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
+  summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha", "model_id"))
+
+bind_rows(cov_noR0_errors %>% mutate(method = "fit observations without R0"), 
+          cov_wR0_errors %>% mutate(method = "fit observations with R0"),
+          cov_shrink_small %>% mutate(method = "estimate error")
+          ) %>%
+  ggplot(aes(x = alpha, y = cov, color = model_id)) +  
+  geom_line() +
+  geom_abline(size = 1) + 
+  facet_grid(cols = vars(method), rows = vars(scenario_id)) + 
+  theme_bw() +
+  theme(legend.position = "none", 
+        panel.grid = element_bl)
+
