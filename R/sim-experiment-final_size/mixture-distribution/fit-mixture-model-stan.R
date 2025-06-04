@@ -636,6 +636,10 @@ for(i in 1:length(alphas)){
            lwr = ifelse(is.na(inverse_boxcox(lwr, lambda)), 0, inverse_boxcox(lwr, lambda)), 
            upr = ifelse(is.na(inverse_boxcox(upr, lambda)), 0, inverse_boxcox(upr, lambda)))
 }
+fit_obs_noR0_long = bind_rows(fit_obs_noR0) %>% 
+  reshape2::melt(c("vax_cov", "fit", "alpha")) %>%
+  mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2), 
+  )
 
 # plot(lm_obs)
 
@@ -822,3 +826,45 @@ fit_obs_wR0_long %>%
   facet_wrap(vars(scenario_id)) + 
   theme_bw()
 
+#### CALCULATE MODEL ERROR USING ESTIMATED OBSERVATIONS ------------------------
+# model error = projection - estimated error distribution
+
+## first estimated observations without covariates in the model
+fit_obs_noR0_samp = fit_obs_noR0_long %>%
+  filter(paste0(quantile, variable) != "0.5lwr") %>% # remove duplicates
+  reframe(est_obs_samp = get_samps(quantile, value, 1e4),
+          draw_id = 1:1e4, .by = c("vax_cov")
+  )
+
+# join samples with model projections for each scenario and calculate error
+fit_obs_noR0_errors = fit_obs_noR0_samp %>% 
+  filter(vax_cov %in% c(0.3, 0.5)) %>%
+  mutate(scenario_id = ifelse(vax_cov == 0.3, "S1", ifelse(vax_cov == 0.5, "S2", NA))) %>%
+  left_join(t_small$model_sims %>% filter(scenario_id %in% c("S1", "S2")), 
+            relationship = "many-to-many") %>%
+  mutate(est_error = final_size - est_obs_samp)
+
+# summarize into a distribution of errors across locations (1 per scenario and model)
+fit_obs_noR0_errorints = fit_obs_noR0_errors %>% 
+  reframe(quantile = quantiles, 
+          est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id"))
+
+## next estimated observations with covariates
+fit_obs_wR0_samp = fit_obs_wR0_long %>%
+  filter(paste0(quantile, variable) != "0.5lwr") %>% # remove duplicates
+  reframe(est_obs_samp = get_samps(quantile, value, 1e4),
+          draw_id = 1:1e4, .by = c("vax_cov", "location_id")
+  )
+
+# join samples with model projections for each scenario and calculate error
+fit_obs_wR0_errors = fit_obs_wR0_samp %>% 
+  filter(vax_cov %in% c(0.3, 0.5)) %>%
+  mutate(scenario_id = ifelse(vax_cov == 0.3, "S1", ifelse(vax_cov == 0.5, "S2", NA))) %>%
+  left_join(t_small$model_sims %>% filter(scenario_id %in% c("S1", "S2")), 
+            relationship = "many-to-many") %>%
+  mutate(est_error = final_size - est_obs_samp)
+
+# summarize into a distribution of errors across locations (1 per scenario and model)
+fit_obs_wR0_errorints = fit_obs_wR0_errors %>% 
+  reframe(quantile = quantiles, 
+          est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id"))
