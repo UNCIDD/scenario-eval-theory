@@ -723,7 +723,8 @@ for(i in 1:length(alphas)){
 }
 fit_obs_wR0_long = bind_rows(fit_obs_wR0) %>% 
   reshape2::melt(c("vax_cov", "location_id", "location_R0", "fit", "alpha")) %>%
-  mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2))
+  mutate(quantile = ifelse(variable == "lwr", (1-alpha)/2, 1-(1-alpha)/2), 
+         scenario_id = ifelse(vax_cov == 0.3, "S1", ifelse(vax_cov == 0.5, "S2", "E")))
 
 # plot relationship vs. true relationship for each location
 bind_rows(fit_obs_wR0) %>% filter(alpha == 0.95) %>% 
@@ -742,7 +743,9 @@ bind_rows(fit_obs_wR0) %>% filter(alpha == 0.95) %>%
 # so we have an estimate of the observation for each location, along the 
 # entire scenario axis
 
-# test how well these predictions capture the true observations (across locations)
+## test how well these predictions capture the true observations (across locations)
+# generate a predicted distribution of observations across locations by drawing
+# an equal number of samples from each predicted distribution
 fit_obs_wR0_samp = fit_obs_wR0_long %>%
   dplyr::select(-variable, -alpha, - fit) %>%
   unique() %>%
@@ -782,4 +785,40 @@ bind_rows(cov_obs_noR0 %>% mutate(model = "without R0 predictor"),
   theme_bw() + 
   theme(legend.position = "bottom", 
         panel.grid = element_blank())
+
+
+# but this is the distribution of observations across all locations, in the case
+# of the model that includes R0, we can also assess how well the model captured
+# the observation at each location
+fit_obs_wR0_long %>%
+  filter(scenario_id == "S1") %>%
+  ggplot(aes(x = value, y = quantile)) + 
+  geom_line() + 
+  geom_vline(data = t_small$true_sims %>% filter(scenario_id == "S1"), 
+             aes(xintercept = true_final_size), linetype = "dashed") +
+  facet_wrap(vars(paste0("R0: ", round(location_R0, 2), ", location ", location_id)), scales = "free") + 
+  labs(x = "final size", title = "Model predicted final size vs. actual final size, scenario 1") + 
+  theme_bw() + 
+  theme(legend.position = "none", 
+  panel.grid = element_blank())
+
+fit_obs_wR0_long %>%
+  filter(scenario_id == "S2") %>%
+  ggplot(aes(x = value, y = quantile)) + 
+  geom_line() + 
+  geom_vline(data = t_small$true_sims %>% filter(scenario_id == "S2"), 
+             aes(xintercept = true_final_size), linetype = "dashed") +
+  facet_wrap(vars(paste0("R0: ", round(location_R0, 2), ", location ", location_id)), scales = "free") + 
+  labs(x = "final size", title = "Model predicted final size vs. actual final size, scenario 2") + 
+  theme_bw() + 
+  theme(legend.position = "none", 
+        panel.grid = element_blank())
+
+fit_obs_wR0_long %>%
+  left_join( t_small$true_sims) %>%
+  filter(scenario_id %in% c("S1", "S2")) %>%
+  ggplot(aes(x = location_R0, y = fit - true_final_size)) + 
+  geom_point() + 
+  facet_wrap(vars(scenario_id)) + 
+  theme_bw()
 
