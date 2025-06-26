@@ -934,6 +934,66 @@ bind_rows(cov_noR0_errors %>% mutate(method = "fit observations without R0"),
   geom_abline(size = 1) + 
   facet_grid(cols = vars(method), rows = vars(scenario_id)) + 
   theme_bw() +
-  theme(legend.position = "none", 
-        panel.grid = element_bl)
+  theme(legend.position = "bottom", 
+        panel.grid = element_blank())
 
+# model-specific coverage for just one method
+cov_wR0_errors %>%
+  ggplot(aes(x = alpha, y = cov, color = model_id)) +  
+  geom_line() +
+  geom_abline(color = 'gray') + 
+  facet_grid(cols = vars(model_id), rows = vars(scenario_id)) + 
+  labs(title = "coverage of each model when fitting observations with R0") + 
+  theme_bw() +
+  theme(legend.position = "none", 
+        panel.grid = element_blank())
+
+# but why is the method with R0 slightly overconfident?
+fit_obs_wR0_errors %>% 
+  filter(model_id == "M8") %>%
+  ggplot(aes(x = est_error)) + 
+  geom_density(aes(color = as.factor(R0))) + 
+  geom_density(data = fit_obs_wR0_errors %>% filter(model_id == "M8"), color = 'black', size = 1) + 
+  geom_density(data = t_small$errors %>% filter(model_id  == "M8", scenario_id %in% c("S1", "S2")), 
+               aes(x = error), linetype = "longdash", size = 1) + 
+  facet_grid(cols = vars(scenario_id), rows = vars(model_id), scales = "free") + 
+  labs(x = "error between projection and observation", title = "accuracy of error distribution estimate from model with R0 (model 8)", 
+       subtitle = "estimated error distribution (solid), true error distribution (dashed), location-specific (colors, low R0 = dark colors)") + 
+  coord_cartesian(ylim = c(0, 75)) + 
+  scale_color_viridis_d() + 
+  theme_bw() + 
+  theme(legend.position = "none")
+  
+fit_obs_wR0_errors %>% 
+  filter(model_id == "M8", scenario_id == "S1") %>%
+  ggplot(aes(x = est_error)) + 
+  geom_density(aes(color = as.factor(R0))) + 
+  geom_vline(data = t_small$errors %>% filter(model_id  == "M8", scenario_id %in% c("S1")), 
+             aes(xintercept = error, color = as.factor(R0))) + 
+  geom_density(data = fit_obs_wR0_errors %>% filter(model_id == "M8", scenario_id == "S1"), color = 'black', size = 1) + 
+  geom_density(data = t_small$errors %>% filter(model_id  == "M8", scenario_id %in% c("S1")), 
+               aes(x = error), linetype = "longdash", size = 1) + 
+  facet_grid(cols = vars(scenario_id), rows = vars(model_id), scales = "free") + 
+  labs(x = "error between projection and observation", title = "accuracy of error distribution estimate from model with R0 (model 8)", 
+       subtitle = "estimated error distribution (solid), true error distribution (dashed), location-specific (colors, low R0 = dark colors)") + 
+  coord_cartesian(ylim = c(0, 75)) + 
+  scale_color_viridis_d() + 
+  theme_bw() + 
+  theme(legend.position = "none")
+
+# so looks like our estimates are biased for low errors, let's check
+fit_obs_wR0_errors %>%
+  left_join(t_small$errors) %>%
+  mutate(diff = error - est_error) %>%
+  filter(draw_id %in% 1:100) %>%
+  # reframe(mean_diff = mean(diff), mean_est_error = mean(est_error),
+          # error = mean(error), .by = c("scenario_id", "model_id", "location_id", "R0")) %>%
+  ggplot(aes(x = error, color = model_id)) + 
+  geom_point(aes(y = diff), alpha = 0.1) + 
+  facet_wrap(vars(scenario_id, model_id), scales = "free") +
+  theme_bw() + 
+  theme(legend.position = "none")
+  
+  
+  
+  
