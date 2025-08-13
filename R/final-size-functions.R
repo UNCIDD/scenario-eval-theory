@@ -34,6 +34,8 @@
 #'                          across locations); defaults to 0, i.e., no variation 
 #'                          in model bias across locations
 #' @param fit_outcomes logical, TRUE to estimate error distribution and calculate coverage
+#' @param final_size_method "analytical" to use final_size() function, "simulation"
+#'                          to use deterministic SIR model with I^alpha
 #' 
 #' @details
 #' The simulation proceeds in the following steps: 
@@ -78,14 +80,14 @@ full_sim <- function(
     n_locations, n_models, seed = 100, vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
     true_vax_cov_lwr = NA, true_vax_cov_upr = NA, R0_lwr = 2, R0_upr = 3.5, 
     cov_R0 = NA, model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
-    model_bias_ind_sd = 0, fit_outcomes = TRUE){
+    model_bias_ind_sd = 0, fit_outcomes = TRUE, final_size_method = "analytical"){
   if(is.na(true_vax_cov_lwr)){true_vax_cov_lwr = vax_cov_S1}
   if(is.na(true_vax_cov_upr)){true_vax_cov_upr = vax_cov_S2}
   sims <- generate_final_size_preds(n_locations, n_models, seed, 
                                     true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                     vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
                                     model_bias_R0_mean, model_bias_R0_sd, 
-                                    model_bias_ind_sd)
+                                    model_bias_ind_sd, final_size_method)
   model_sims = sims %>% filter(model_id != "T") %>%
     dplyr::select(-location_R0)
   true_sims = sims %>% filter(model_id == "T") %>%
@@ -110,7 +112,7 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
                                       true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                       vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
                                       model_bias_R0_mean, model_bias_R0_sd, 
-                                      model_bias_ind_sd){
+                                      model_bias_ind_sd, final_size_method){
   set.seed(seed)
   if(is.na(cov_R0)){
     # true vaccination coverage for each location
@@ -168,15 +170,31 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
       susceptible = 1 - sims$vax_cov[i],
       immunised = sims$vax_cov[i]
     )
-    fs <- final_size(
-      r0 = sims$R0[i],
-      contact_matrix = matrix(1.0)/1E3,
-      demography_vector = 1E3,
-      susceptibility = susc_immunised,
-      p_susceptibility = p_susc_immunised, 
-      control = list(iterations = 1e8)
-    )
-    sims$final_size[i] <- fs[1,4]
+    if(final_size_method == "analytical"){
+      fs <- final_size(
+        r0 = sims$R0[i],
+        contact_matrix = matrix(1.0)/1E3,
+        demography_vector = 1E3,
+        susceptibility = susc_immunised,
+        p_susceptibility = p_susc_immunised, 
+        control = list(iterations = 1e8)
+      )
+      # browser()
+      sims$final_size[i] <- fs[1,4]
+    }
+    else if(final_size_method == "simulation"){
+      # for truth use I^0.97
+      params = c(mu = 0, N = 1e3, R0 = unname(unlist(sims$R0[i])), gamma = 365/10, 
+                 alpha = ifelse(sims$model_id[i] == "T", 0.97, 1))
+      params["beta"] = unname(unlist(params["R0"] * (params["gamma"] + params["mu"])))
+      inits = c(S = 1 - unname(unlist(sims$vax_cov[i])),
+                I = 1e-3,
+                R = unname(unlist(sims$vax_cov[i])) - 1e-3
+                )*params["N"]
+      fs <- as.data.frame(ode(y = inits, times = seq(0, 1.5, 1/52), func = ode_sir, parms = params))
+      # browser()
+      sims$final_size[i] <- (inits["S"] - unname(unlist(fs %>% filter(time == max(time)) %>% pull(S))))/(inits["S"])
+    }
   }
   return(sims)
 }
@@ -227,7 +245,7 @@ estimate_w_gamlss <- function(vax_cov_S1, vax_cov_S2, errors_df, n_models,
     quant_fits[[i]] = reshape2::melt(g_pls, c("x")) %>%
       mutate(quantile = quantiles[variable]) %>%
       rename(vax_cov = x) %>%
-      select(-variable)
+      dplyr::select(-variable)
   }
   quant_fits <- bind_rows(quant_fits, .id = "model_id") %>%
     mutate(model_id = paste0("M", model_id)) 
@@ -273,7 +291,6 @@ calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2, sum
 #' @param invfn2 function, additional inverse function to be applied if predictions
 #' were transformed before fitting GAM, otherwise identity use function
 get_gam_PIs <- function(mod, xvals, invfn2){
-  # get estimates and covariance matrix
   beta <- coef(mod) # beta
   Vb <- vcov(mod) # V
   # simulate beta vectors 
@@ -297,5 +314,17 @@ get_gam_PIs <- function(mod, xvals, invfn2){
                          xval = xvals)) %>% 
     dplyr::select(-xval_id)
   return(ret)
+}
+
+ode_sir = function(t, y, parameters) {
+  with(as.list(c(y, parameters)), {
+    # Define equations
+    dS = mu * N - beta * S * I^alpha/N - mu * S
+    dI = beta * S * I^alpha/N - gamma * I - mu * I
+    dR = gamma * I - mu * R 
+    res = c(dS, dI, dR)
+    # Return list of gradients
+    list(res)
+  })
 }
 
