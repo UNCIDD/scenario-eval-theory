@@ -36,6 +36,9 @@
 #' @param fit_outcomes logical, TRUE to estimate error distribution and calculate coverage
 #' @param final_size_method "analytical" to use final_size() function, "simulation"
 #'                          to use deterministic SIR model with I^alpha
+#' @param alpha_lwr double lower bound for uniform distribtuion to draw model-specific alpha
+#' @param alpha_upr double upper bound for uniform distribution to draw model-specific alpha
+#' @param alpha_sd double standard deviation to draw location-specific alpha (around model-specific alpha)
 #' 
 #' @details
 #' The simulation proceeds in the following steps: 
@@ -80,14 +83,16 @@ full_sim <- function(
     n_locations, n_models, seed = 100, vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
     true_vax_cov_lwr = NA, true_vax_cov_upr = NA, R0_lwr = 2, R0_upr = 3.5, 
     cov_R0 = NA, model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
-    model_bias_ind_sd = 0, fit_outcomes = TRUE, final_size_method = "analytical"){
+    model_bias_ind_sd = 0, fit_outcomes = TRUE, final_size_method = "analytical", 
+    alpha_upr = 1, alpha_lwr = 0.95, alpha_sd = 0.01){
   if(is.na(true_vax_cov_lwr)){true_vax_cov_lwr = vax_cov_S1}
   if(is.na(true_vax_cov_upr)){true_vax_cov_upr = vax_cov_S2}
   sims <- generate_final_size_preds(n_locations, n_models, seed, 
                                     true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                     vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
                                     model_bias_R0_mean, model_bias_R0_sd, 
-                                    model_bias_ind_sd, final_size_method)
+                                    model_bias_ind_sd, final_size_method, 
+                                    alpha_upr, alpha_lwr, alpha_sd)
   model_sims = sims %>% filter(model_id != "T") %>%
     dplyr::select(-location_R0)
   true_sims = sims %>% filter(model_id == "T") %>%
@@ -112,7 +117,8 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
                                       true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                       vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
                                       model_bias_R0_mean, model_bias_R0_sd, 
-                                      model_bias_ind_sd, final_size_method){
+                                      model_bias_ind_sd, final_size_method, 
+                                      alpha_upr, alpha_lwr, alpha_sd){
   set.seed(seed)
   if(is.na(cov_R0)){
     # true vaccination coverage for each location
@@ -147,6 +153,18 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
                          location_R0 = R0_T)) %>% 
     mutate(location_bias_sd = ifelse(model_id == "T", 0, model_bias_ind_sd), 
            R0 = location_R0 + rnorm(1, model_bias, location_bias_sd), .by = c("model_id", "location_id"))
+  # add alpha variable (if needed)
+  if(final_size_method == "simulation"){
+    model_loc_R0 = model_loc_R0 %>%
+      left_join(
+        data.frame(model_id = c(paste0("M", 1:n_models), "T"),
+                   model_alpha = c(runif(n_models, alpha_lwr, alpha_upr), mean(c(alpha_lwr, alpha_upr)))) # ensure the true alpha is in the middle
+      ) %>%
+      mutate(alpha = rnorm(1, model_alpha, alpha_sd), .by = c("model_id", "location_id"))
+  }
+  else{
+    model_loc_R0$alpha = 1
+  }
   # generate all possibilities
   sims <- expand.grid(model_id = c(paste0("M", 1:n_models), "T"),
                       location_id = 1:n_locations, 
@@ -160,7 +178,7 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
     mutate(scenario_id = "E")
   sims <- bind_rows(sims, sims_full_relationship) %>% 
     # add model bias
-    left_join(model_loc_R0[, c("model_id", "location_id", "location_R0", "R0")])
+    left_join(model_loc_R0[, c("model_id", "location_id", "location_R0", "R0", "alpha")])
   sims$final_size = NA
   # final size variables
   susc_immunised <- cbind(1,0)
@@ -183,16 +201,14 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
       sims$final_size[i] <- fs[1,4]
     }
     else if(final_size_method == "simulation"){
-      # for truth use I^0.97
       params = c(mu = 0, N = 1e3, R0 = unname(unlist(sims$R0[i])), gamma = 365/10, 
-                 alpha = ifelse(sims$model_id[i] == "T", 0.97, 1))
+                 alpha = unname(unlist(sims$alpha[i])))
       params["beta"] = unname(unlist(params["R0"] * (params["gamma"] + params["mu"])))
       inits = c(S = 1 - unname(unlist(sims$vax_cov[i])),
                 I = 1e-3,
                 R = unname(unlist(sims$vax_cov[i])) - 1e-3
                 )*params["N"]
       fs <- as.data.frame(ode(y = inits, times = seq(0, 1.5, 1/52), func = ode_sir, parms = params))
-      # browser()
       sims$final_size[i] <- (inits["S"] - unname(unlist(fs %>% filter(time == max(time)) %>% pull(S))))/(inits["S"])
     }
   }

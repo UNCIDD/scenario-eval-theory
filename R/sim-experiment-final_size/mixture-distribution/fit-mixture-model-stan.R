@@ -314,13 +314,7 @@ bind_rows(cov %>% mutate(fit = "no shrinkage"),
 
 
 #### REPEAT WITH FEWER LOCATIONS -----------------------------------------------
-# run simulation - using 500 locations for now
-t_small_ana <- full_sim(n_locations = 50, n_models = n_models,
-                        vax_cov_S1 = 0.3, vax_cov_S2 = 0.5,
-                        R0_lwr = 2, R0_upr = 3,
-                        model_bias_ind_sd = 0.05,
-                        seed = seed_id, fit_outcomes = FALSE)
-
+# run simulation - using 50 locations
 t_small <- full_sim(n_locations = 50, n_models = n_models,
                     vax_cov_S1 = 0.3, vax_cov_S2 = 0.5,
                     R0_lwr = 2, R0_upr = 3,
@@ -328,28 +322,11 @@ t_small <- full_sim(n_locations = 50, n_models = n_models,
                     # R0_lwr = 1, R0_upr = 5,
                     model_bias_ind_sd = 0.05,
                     seed = seed_id, fit_outcomes = TRUE, 
-                    final_size_method = "simulation")
-
-bind_rows(t_small_ana$true_sims %>% mutate(model = 'analytical'), 
-          t_small$true_sims %>% mutate(model = 'simulation')) %>%
-  ggplot(aes(x = vax_cov, y = true_final_size, color = model)) + 
-  geom_line() +
-  facet_wrap(vars(location_id))
-
-bind_rows(t_small_ana$true_sims %>% mutate(model = 'analytical') %>% filter(vax_cov %in% c(0.3, 0.5)), 
-          t_small$true_sims %>% mutate(model = 'simulation') %>% filter(vax_cov %in% c(0.3, 0.5))) %>%
-  ggplot(aes(x = location_R0, y = true_final_size, color = model)) + 
-  # geom_line(data = data.frame(location_R0 = seq(1,5,0.1), 
-  #                             herd_imm = 1-1/seq(1,5,0.1)), 
-  #           aes(x = location_R0, y = herd_imm), color = "black") + 
-  geom_line() + 
-  geom_point() + 
-  facet_wrap(vars(vax_cov)) + 
-  scale_y_continuous(breaks = seq(0, 1, 0.2))
+                    final_size_method = "simulation", 
+                    alpha_lwr = 0.95, alpha_upr = 1, alpha_sd = 0.01)
 
 # note: scenario_id = T returns only observed errors (not true errors to test against)
 error_df_small = t_small$errors %>% filter(scenario_id == "T")
-
 
 left_join(t_small$model_sims, 
           t_small$true_sims) %>%
@@ -360,6 +337,13 @@ left_join(t_small$model_sims,
   facet_wrap(vars(paste0(round(location_R0,2), " (", location_id, ")")), scales = "free") + 
   theme_bw() + 
   theme(legend.position = "none")
+
+# ggplot(data = error_df_small %>% filter(scenario_id == "T"), aes(x = vax_cov, y = error)) + 
+#   geom_hline(yintercept = 0) + 
+#   geom_line(data = t_small$errors, aes(group = location_id), alpha = 0.1) +
+#   geom_point() + 
+#   facet_wrap(vars(model_id)) + 
+#   theme_bw()
 
 ggplot(data = error_df_small %>% filter(scenario_id == "T"), aes(x = vax_cov, y = error)) + 
   geom_hline(yintercept = 0) + 
@@ -397,7 +381,8 @@ ggplot(data = fit_errors_gam_plot, aes(x = vax_cov, fill = model_id)) +
   geom_line(aes(y = Q50, color = model_id)) + 
   geom_point(data = error_df_small %>% filter(scenario_id == "T"), aes(y = error), shape = 1, color = "black") +
   facet_wrap(vars(model_id)) + 
-   theme_bw()
+  theme_bw() + 
+  theme(legend.position = "none")
 
 #### FIT WITH SHRINKAGE PARAMETERS ---------------------------------------------
 fit_errors_shrinkage_small <- vector("list", n_models)
@@ -1013,7 +998,7 @@ all_preds = fit_obs_noR0_errorints %>%
 
 ggplot(data = all_preds %>% filter(scenario_id %in% c("S1")), 
        aes(x = est_error, y = quantile, color = method)) + 
-  geom_path() + 
+  geom_path(linewidth = 0.7) + 
   facet_wrap(vars(model_id), scales = "free") + 
   scale_color_manual(values = c(RColorBrewer::brewer.pal(4, "Dark2"), "black")) + 
   theme_bw() + 
@@ -1029,7 +1014,7 @@ cov_noR0_errors = fit_obs_noR0_errors %>%
   mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
          range = ifelse(quantile < 0.5, "lwr", "upr"))  %>%
   dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
-  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")), relationship = "many-to-many") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha), relationship = "many-to-many") %>% # remove simulation parameter alpha (so no conflicts with alpha for coverage)
   mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
   summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha", "model_id"))
 
@@ -1041,7 +1026,7 @@ cov_wR0_errors = fit_obs_wR0_errors %>%
   mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
          range = ifelse(quantile < 0.5, "lwr", "upr"))  %>%
   dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
-  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")), relationship = "many-to-many") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha), relationship = "many-to-many") %>%
   mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
   summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha", "model_id"))
 
@@ -1053,11 +1038,36 @@ cov_gam_fixed_sigma = fit_errors_gam %>%
          scenario_id = ifelse(vax_cov == 0.3, "S1", "S2")
          )  %>%
   dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
-  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")), relationship = "many-to-many") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha), relationship = "many-to-many") %>%
   mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
   summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha", "model_id"))
 
-cov_gam_est_sigma = t_small$quant_reg %>%
+# now coverage across all models
+cov_noR0_all = fit_obs_noR0_errors %>% 
+  filter(!is.na(model_id)) %>%
+  reframe(quantile = quantiles, 
+          est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id")) %>% # IS THIS RIGHT?
+  filter(quantile != 0.5) %>%
+  mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
+         range = ifelse(quantile < 0.5, "lwr", "upr"))  %>%
+  dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha), relationship = "many-to-many") %>% # remove simulation parameter alpha (so no conflicts with alpha for coverage)
+  mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
+  summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha"))
+
+cov_wR0_all = fit_obs_wR0_errors %>% 
+  filter(!is.na(model_id)) %>%
+  reframe(quantile = quantiles, 
+          est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id")) %>% # IS THIS RIGHT?
+  filter(quantile != 0.5) %>%
+  mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
+         range = ifelse(quantile < 0.5, "lwr", "upr"))  %>%
+  dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha), relationship = "many-to-many") %>%
+  mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
+  summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha"))
+
+cov_gam_fixed_sigma_all = fit_errors_gam %>%
   rename(est_error = value) %>%
   filter(quantile != 0.5, vax_cov %in% c(0.3, 0.5)) %>%
   mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
@@ -1065,17 +1075,34 @@ cov_gam_est_sigma = t_small$quant_reg %>%
          scenario_id = ifelse(vax_cov == 0.3, "S1", "S2")
   )  %>%
   dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
-  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")), relationship = "many-to-many") %>%
+  left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha), relationship = "many-to-many") %>%
   mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
-  summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha", "model_id"))
+  summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha"))
+
+# cov_gam_est_sigma = t_small$quant_reg %>%
+#   rename(est_error = value) %>%
+#   filter(quantile != 0.5, vax_cov %in% c(0.3, 0.5)) %>%
+#   mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)), 4), 
+#          range = ifelse(quantile < 0.5, "lwr", "upr"), 
+#          scenario_id = ifelse(vax_cov == 0.3, "S1", "S2")
+#   )  %>%
+#   dcast(scenario_id + model_id + alpha ~ range, value.var = "est_error") %>%
+#   left_join(t_small$errors %>% filter(scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha), relationship = "many-to-many") %>%
+#   mutate(cov = ifelse(error <= upr & error >= lwr, 1, 0)) %>%
+#   summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha", "model_id"))
 
 bind_rows(cov_noR0_errors %>% mutate(method = "fit observations without R0"), 
           cov_wR0_errors %>% mutate(method = "fit observations with R0"),
-          cov_gam_fixed_sigma %>% mutate(method = "estimate error - GAM fixed sigma"), 
-          cov_gam_est_sigma %>% mutate(method = "estimate error - GAM est sigma")
+          cov_gam_fixed_sigma %>% mutate(method = "estimate error - GAM fixed sigma")#, 
+          # cov_gam_est_sigma %>% mutate(method = "estimate error - GAM est sigma")
           ) %>%
   ggplot(aes(x = alpha, y = cov, color = model_id)) +  
-  geom_line() +
+  geom_line(alpha = 0.4) +
+  geom_line(data = bind_rows(cov_noR0_all %>% mutate(method = "fit observations without R0"), 
+                             cov_wR0_all %>% mutate(method = "fit observations with R0"),
+                             cov_gam_fixed_sigma_all %>% mutate(method = "estimate error - GAM fixed sigma")), 
+            color = "blue", linewidth = 0.7
+  ) +
   geom_abline(size = 1) + 
   facet_grid(cols = vars(method), rows = vars(scenario_id)) + 
   theme_bw() +
@@ -1139,6 +1166,384 @@ fit_obs_wR0_errors %>%
   theme_bw() + 
   theme(legend.position = "none")
   
+
+### SHOW RANKING OF MODELS UNDER EACH METHOD VS. TRUTH -------------------------
+# 1. most plausible scenario
+# 2. estimate error distribution directly
+# 3. estimate observations, then calculate error
+
+## perform approach 1
+# observation (when scenario_id == "T) - projection (in modeled scenarios)
+# only for most plausible scenario
+est_error_plaus = t_small$model_sims %>% 
+  filter(scenario_id %in% c("S1", "S2")) %>%
+  left_join(t_small$true_sims %>% # get realized vax cov
+              filter(scenario_id == "T") %>%
+              rename(true_vax_cov = vax_cov) %>%
+              dplyr::select(location_id, true_vax_cov, true_final_size)) %>%
+  mutate(vax_diff = abs(true_vax_cov - vax_cov)) %>%
+  mutate(min_vax_diff = min(vax_diff), .by = c("model_id", "location_id")) %>%
+  # filter to "plausible" scenarios (minimize vax_diff)
+  filter(vax_diff == min_vax_diff) %>%
+  mutate(est_error = final_size - true_final_size)
   
+
+all_ests_dist = bind_rows(
+  fit_obs_wR0_errors %>% 
+    filter(!is.na(model_id)) %>%
+    reframe(quantile = quantiles, 
+            est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id")) %>%
+    mutate(method = "fit observations"), 
+  fit_errors_gam %>%
+    rename(est_error = value) %>%
+    filter(vax_cov %in% c(0.3, 0.5)) %>%
+    mutate(method = "estimate error distribution directly", 
+           scenario_id = ifelse(vax_cov == 0.3, "S1", "S2")) %>%
+    dplyr::select(-vax_cov), 
+  est_error_plaus %>% 
+    mutate(scenario_id = "S1") %>%
+    reframe(quantile = quantiles, 
+            est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id")) %>%
+    mutate(method = "plausible scenario"), 
+  est_error_plaus %>% 
+    mutate(scenario_id = "S2") %>%
+    reframe(quantile = quantiles, 
+            est_error = quantile(est_error, quantiles), .by = c("model_id", "scenario_id")) %>%
+    mutate(method = "plausible scenario"), 
+  t_small$errors %>%
+    filter(scenario_id %in% c("S1", "S2")) %>%
+    reframe(quantile = quantiles, 
+            est_error = quantile(error, quantiles), .by = c("model_id", "scenario_id")) %>%
+    mutate(method = "truth")
+)
   
+all_ests_dist %>%
+  filter(round(quantile,4) %in% round(c(0.05,0.25,0.5,0.75,0.95),4)) %>%
+  mutate(quantile = paste0("Q", quantile*100)) %>%
+  dcast(model_id + scenario_id + method ~ quantile, value.var = "est_error") %>%
+  mutate(rank = rank(Q50), .by = c("method", "scenario_id"), 
+         method = factor(method, c("truth", "plausible scenario", "fit observations", "estimate error distribution directly"))) %>%
+  ggplot(aes(x = method, y = rank, fill = as.factor(model_id))) + 
+  geom_tile(alpha = 0.4) + 
+  geom_text(aes(label = model_id)) + 
+  geom_vline(xintercept = 1.5) + 
+  facet_wrap(vars(scenario_id), scales = "free") + 
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(breaks = 1:10, expand = c(0,0)) +
+  theme_bw() + 
+  theme(legend.position = "none", 
+        panel.grid = element_blank())
+
+
+all_ests_w_rank = all_ests_dist %>%
+  filter(round(quantile,4) %in% round(c(0.05,0.25,0.5,0.75,0.95),4)) %>%
+  mutate(quantile = paste0("Q", quantile*100)) %>%
+  dcast(model_id + scenario_id + method ~ quantile, value.var = "est_error") %>%
+  mutate(rank = rank(Q50), .by = c("method", "scenario_id"), 
+         method = factor(method, c("truth", "plausible scenario", "fit observations", "estimate error distribution directly"))) %>%
+  left_join(all_ests_dist %>%
+              filter(round(quantile,4) %in% round(c(0.05,0.25,0.5,0.75,0.95),4)) %>%
+              mutate(quantile = paste0("Q", quantile*100)) %>%
+              dcast(model_id + scenario_id + method ~ quantile, value.var = "est_error") %>%
+              mutate(rank = rank(Q50), .by = c("method", "scenario_id")) %>% filter(method == "truth") %>%
+              rename(true_rank = rank) %>% dplyr::select(model_id, scenario_id, true_rank)  
+  ) %>%
+  mutate(correct_flag = ifelse(rank == true_rank, TRUE, FALSE)) %>%
+  mutate(correct_flag = ifelse(method == "truth", FALSE, correct_flag))
+         
+p1 = all_ests_w_rank %>%
+  filter(scenario_id == "S1" | is.na(scenario_id)) %>%
+  ggplot(aes(x = reorder(model_id, true_rank), color = model_id)) +
+  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q5, yend = Q95)) + 
+  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q25, yend = Q75), linewidth = 0.5) + 
+  geom_point(aes(y = Q50), size = 3) + 
+  geom_point(aes(y = Q50, shape = correct_flag), color = 'white') +
+  geom_text(aes(y = Q5 - 0.01, label = rank), color ="black", size = 2.5) + 
+  ggtitle("scenario 1") +
+  facet_grid(cols = vars(method), scales = "free_x") + 
+  scale_shape_manual(values = c(NA, 8)) +
+  scale_y_continuous(limits = 0.25*c(-1,1)) +
+  theme_bw() + 
+  theme(legend.position = "none", 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank()) 
+p2 = all_ests_w_rank %>%
+  filter(scenario_id == "S2" | is.na(scenario_id)) %>%
+  ggplot(aes(x = reorder(model_id, true_rank), color = model_id)) +
+  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q5, yend = Q95)) + 
+  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q25, yend = Q75), linewidth = 0.5) + 
+  geom_point(aes(y = Q50), size = 3) + 
+  geom_point(aes(y = Q50, shape = correct_flag), color = 'white') +
+  geom_text(aes(y = Q5 - 0.01, label = rank), color ="black", size = 2.5) + 
+  ggtitle("scenario 2") +
+  facet_grid(cols = vars(method), scales = "free_x") + 
+  scale_shape_manual(values = c(NA, 8)) +
+  scale_y_continuous(limits = 0.25*c(-1,1)) +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank()) 
+cowplot::plot_grid(p1, p2, ncol = 1)
+
+# try KS test and KLIC
+# get samples from distributions
+
+get_samps = function(quant, value, samp_size = 1e4){
+  approx(quantile, value, xout = runif(0, 1, 1e4))$y
+}
+
+all_ests = bind_rows(
+  fit_obs_wR0_errors %>% 
+    filter(!is.na(model_id)) %>%
+    dplyr::select(model_id, scenario_id, est_error) %>%
+    mutate(method = "fit observations"), 
+  fit_errors_gam %>%
+    filter(vax_cov %in% c(0.3, 0.5)) %>%
+    reframe(est_error = get_samps(quantile, value), .by = c("model_id", "vax_cov")) %>%
+    mutate(method = "estimate error distribution directly", 
+           scenario_id = ifelse(vax_cov == 0.3, "S1", "S2")) %>%
+    dplyr::select(-vax_cov), 
+  est_error_plaus %>% 
+    mutate(scenario_id = "S1") %>%
+    dplyr::select(model_id, scenario_id, est_error) %>%
+    mutate(method = "plausible scenario"), 
+  est_error_plaus %>% 
+    mutate(scenario_id = "S2") %>%
+    dplyr::select(model_id, scenario_id, est_error) %>%
+    mutate(method = "plausible scenario"), 
+)
+
+set.seed(0)
+method_comparsion_results = expand.grid(model_id = paste0("M", 1:n_models), 
+                                        scenario_id = c("S1", "S2"), 
+                                        method = c("fit observations", "estimate error distribution directly", "plausible scenario"), 
+                                        n_df = NA, n_truth = NA,
+                                        ks_test_stat = NA, ks_test_p = NA, klic = NA)
+for(i in 1:nrow(method_comparsion_results)){
+  if(i %%10 == 0){print(i)}
+  tmp_scenario_id = method_comparsion_results[i, "scenario_id"]
+  tmp_model_id = method_comparsion_results[i, "model_id"]
+  tmp_method = method_comparsion_results[i, "method"]
+  tmp_df = all_ests %>% filter(scenario_id == tmp_scenario_id, model_id == tmp_model_id, method == tmp_method)
+  tmp_truth = t_small$errors %>% filter(scenario_id == tmp_scenario_id, model_id == tmp_model_id)
+  tmp_ks = ks.test(tmp_df$est_error, tmp_truth$error)
+  dens_df = density(tmp_df$est_error, from = min(c(tmp_df$est_error, tmp_truth$error)), 
+                    to = max(c(tmp_df$est_error, tmp_truth$error)), n = 100)$y
+  dens_truth = density(tmp_truth$error, from = min(c(tmp_df$est_error, tmp_truth$error)), 
+                       to = max(c(tmp_df$est_error, tmp_truth$error)), n = 100)$y
+  method_comparsion_results[i, "n_df"] = length(tmp_df$est_error)
+  method_comparsion_results[i, "n_truth"] = length(tmp_truth$error)
+  tmp_kl = KL(rbind(dens_df/sum(dens_df), dens_truth/sum(dens_truth)), unit = "log2")
+  method_comparsion_results[i, "ks_test_stat"] = tmp_ks$statistic
+  method_comparsion_results[i, "ks_test_p"] = tmp_ks$p.value
+  # method_comparsion_results[i, "ks_p5_lvl"] = 1.358*sqrt((n_df + n_truth)/(n_df*n_truth)) # level of ks statistic s.t., p-value = 0.05
+  method_comparsion_results[i, "klic"] = tmp_kl
+}
+
+method_comparsion_results = method_comparsion_results %>%
+  left_join(all_ests_dist %>%
+              filter(round(quantile,4) %in% round(c(0.05,0.25,0.5,0.75,0.95),4)) %>%
+              mutate(quantile = paste0("Q", quantile*100)) %>%
+              dcast(model_id + scenario_id + method ~ quantile, value.var = "est_error") %>%
+              mutate(rank = rank(Q50), .by = c("method", "scenario_id")) %>% filter(method == "truth") %>%
+              rename(true_rank = rank) %>% dplyr::select(model_id, scenario_id, true_rank)  
+  ) %>%
+  mutate(method = factor(method, c("plausible scenario", "fit observations", "estimate error distribution directly")))
   
+## FIGURE 5
+p1 = all_ests_w_rank %>%
+  ggplot(aes(x = reorder(model_id, true_rank), color = method)) +
+  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q5, yend = Q95), linewidth = 0.3) + 
+  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q25, yend = Q75), linewidth = 0.7) + 
+  geom_point(aes(y = Q50), size = 1) + 
+  # geom_point(aes(y = Q50, shape = correct_flag), color = 'white') +
+  geom_text(aes(y = Q5 - 0.02, label = rank), color ="black", size = 1.8) + 
+  facet_grid(cols = vars(method), rows = vars(scenario_id), 
+             labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
+  labs(x = "model", y = "distribution of errors across locations", color = "error estimation method") +
+  scale_color_manual(values = c("black", RColorBrewer::brewer.pal(3, "Set1"))) +
+  scale_shape_manual(values = c(NA, 8)) +
+  scale_x_discrete(labels = paste0("M", 1:10)) +
+  scale_y_continuous(limits = 0.25*c(-1,1)) +
+  theme_bw(base_size = 7) + 
+  theme(legend.position = "bottom", 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(), 
+        strip.background = element_blank(), 
+        strip.placement = "outside") 
+p3 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_rank), y = klic, color = method)) + 
+  geom_point(size = 1.5, alpha = 0.8) + 
+  # geom_line(alpha = 0.2) +
+  facet_grid(rows = vars(scenario_id), 
+             labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
+  labs(x = "model", y = "Kullback-Leibler divergence") +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_discrete(labels = paste0("M", 1:10)) +
+  theme_bw(base_size = 7) + 
+  theme(legend.position = "none", 
+        panel.grid = element_blank(),
+        strip.background = element_blank(), 
+        strip.placement = "outside")
+p4 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_rank), y = ks_test_stat, color = method)) + 
+  geom_point(size = 1.5, alpha = 0.8) + 
+  # geom_point(data = method_comparsion_results %>% filter(ks_test_p > 0.05), shape = 8, color = "white", size = 0.5) +
+  geom_hline(data = method_comparsion_results %>%
+               dplyr::select(method, n_df, n_truth) %>%
+               unique() %>%
+               mutate(ks_sig = 1.358*sqrt((n_df + n_truth)/(n_df*n_truth))), # 5% p value level 
+             aes(color = method, yintercept = ks_sig, linetype = method), linewidth = 0.3) + 
+  # geom_point(data = method_comparsion_results, aes(y = ks_p5_lvl), color = 'black') + 
+  facet_grid(rows = vars(scenario_id),
+             labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
+  labs(x = "model", y = "Kolmogorov-Smirnov test statistic") +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_discrete(labels = paste0("M", 1:10)) +
+  scale_linetype_manual(values = c("33", "33", "39")) +
+  theme_bw(base_size = 7) + 
+  theme(legend.position = "none", 
+        panel.grid = element_blank(),
+        strip.background = element_blank(), 
+        strip.placement = "outside")
+l = cowplot::get_legend(p1)
+# cowplot::plot_grid(
+  cowplot::plot_grid(
+    p1 + theme(legend.position = "none"), 
+    cowplot::plot_grid(p4, p3, nrow = 1), 
+    l,
+    ncol = 1, rel_heights = c(0.475, 0.475, 0.05), labels = c("A", "B", NA), label_size = 10
+    # nrow = 1, rel_widths = c(0.6, 0.4), align = "h", axis = "t", labels = c("A", "B")
+    )
+  # l, ncol = 1, rel_heights = c(0.95, 0.05)
+# )
+ggsave("R/sim-experiment-final_size/mixture-distribution/method_comparison.pdf", width = 7, height = 5)
+
+
+### APPROACH 1 FIGURE ----------------------------------------------------------
+locs_to_plot = c(29, 13, 19, 5)
+loc_labs = c(15, 39, 3, 41)
+loc_plaus = c(rep("S1", 2), rep("S2", 2))
+loc_cols = RColorBrewer::brewer.pal(4, "Set1")[2:4]
+model_to_plot = "M4"
+
+approach_1_plot_df = t_small$model_sims %>% 
+  filter(model_id %in% c(model_to_plot, "T"), location_id %in% locs_to_plot, 
+         scenario_id %in% c("S1", "S2")) %>%
+  left_join(t_small$true_sims %>% filter(location_id %in% locs_to_plot, scenario_id == "T") %>% rename(true_vax_cov = vax_cov) %>% dplyr::select(-scenario_id)) %>%
+  left_join(data.frame(location_id = locs_to_plot, plausible_scenario = loc_plaus)) %>%
+  mutate(location_id = factor(location_id, levels = locs_to_plot))
+  
+ggplot(data = approach_1_plot_df) + 
+  geom_line(data = t_small$true_sims %>% filter(location_id %in% locs_to_plot), 
+             aes(x = vax_cov, y = true_final_size, color = "observation"), alpha = 0.2, linewidth = 0.5) +
+  geom_segment(data = t_small$model_sims %>% 
+                 filter(model_id %in% c(model_to_plot, "T"), location_id %in% locs_to_plot, 
+                        scenario_id %in% c("S1", "S2")) %>%
+                 left_join(t_small$true_sims %>% 
+                             filter(location_id %in% locs_to_plot, 
+                                    scenario_id %in% c("S1", "S2"))) %>%
+                 mutate(location_id = factor(location_id, levels = locs_to_plot)), 
+               aes(x = vax_cov,# + ifelse(scenario_id == "S1", -0.005, 0.005), 
+                   xend = vax_cov,# + ifelse(scenario_id == "S1", -0.005, 0.005), 
+                   y = final_size, yend = true_final_size), linewidth = 1, alpha = 0.2) + 
+  geom_point(data = t_small$true_sims %>% filter(location_id %in% locs_to_plot, scenario_id %in% c("S1", "S2")), 
+             aes(x = vax_cov, y = true_final_size, color = "observation"), shape = 21, fill = "white", alpha = 0.2) +
+  geom_segment(data = approach_1_plot_df %>% filter(scenario_id == plausible_scenario),
+               aes(x = vax_cov, xend = true_vax_cov, y = true_final_size, yend = true_final_size), linetype = "dotted", linewidth = 0.3) + 
+  geom_segment(data = approach_1_plot_df %>% filter(scenario_id == plausible_scenario),
+               aes(x = vax_cov, xend = vax_cov, 
+                   y = true_final_size, yend = final_size), arrow = arrow(length = unit(0.05, "npc")), linewidth = 0.3) +
+  geom_point(aes(x = vax_cov, y = final_size, color = "projection"), size = 1.25) + 
+  geom_point(aes(x = true_vax_cov, y = true_final_size, color = "observation"), size = 1.25) + 
+  geom_text(data = data.frame(location_id = locs_to_plot, 
+                              location_lab = loc_labs) %>%
+              mutate(location_id = factor(location_id, levels = locs_to_plot)),
+            aes(x = Inf, y = Inf, label = paste0("location ", location_lab)), 
+            hjust = 1, vjust = 1, size = 2.5) +
+  facet_wrap(vars(location_id)) +
+  labs(x = "realized vaccine uptake\n(scenario axis)", 
+       y = "cumulative hospitalizations\n(projection axis)") +
+  scale_color_manual(values = c("red", "black")) +
+  theme_bw(base_size = 7) +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(),
+        panel.grid = element_blank(), 
+        strip.background = element_blank(), 
+        strip.text = element_blank())
+ggsave("R/sim-experiment-final_size/mixture-distribution/approach1_illustration.pdf", width = 3.25, height = 3)
+
+#### APPROACH 2 FIGURE ---------------------------------------------------------
+locs_to_plot = c(31, 26)
+loc_labs = c(9, 46)
+loc_cols = RColorBrewer::brewer.pal(4, "Set1")[2:4]
+model_to_plot = "M4"
+
+plot_fit_obs = ggplot(data = t_small$true_sims %>% filter(scenario_id == "T"), 
+                 aes(x = vax_cov)) + 
+  geom_ribbon(data = bind_rows(fit_obs_noR0) %>% filter(alpha == 0.95) %>% 
+                mutate(lwr = ifelse(is.na(lwr), 0, lwr)), 
+              aes(ymin = lwr, ymax = upr), alpha = 0.075, fill = "red") +
+  # geom_line(data = bind_rows(fit_obs_noR0) %>% filter(alpha == 0.95) %>% 
+  #               mutate(lwr = ifelse(is.na(lwr), 0, lwr)), 
+  #             aes(y = fit), alpha = 0.8, color = "red", linetype = "dashed") +
+  geom_line(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot), 
+            aes(y = fit, group = location_id), alpha = 0.4, color = "red", linewidth = 0.3, linetype = "dashed") +
+  geom_point(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)), 
+            aes(y = fit), color = "red", shape = 21, fill = "white", size = 1.25) +
+  geom_point(aes(y = true_final_size), color = "red", size = 1.25) + 
+  geom_text(data = t_small$true_sims %>% filter(scenario_id == "T") %>%
+              filter(location_id %in% locs_to_plot) %>% 
+              left_join(data.frame(location_id = locs_to_plot, 
+                                   new_location_id = loc_labs)), 
+            aes(y = true_final_size, label = new_location_id), color = "white", size = 1) + 
+  labs(x = "realized vaccine uptake\n(scenario axis)", 
+       y = "observed cumulative hospitalizations\n(projection axis)") +
+  scale_y_continuous(limits = c(0, 0.9)) + 
+  theme_bw(base_size = 7) + 
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major.x = element_blank())
+plot_fit_obs
+
+approach_2_plot_df = t_small$model_sims %>% 
+  filter(model_id %in% c(model_to_plot, "T"), location_id %in% locs_to_plot, 
+         scenario_id %in% c("S1", "S2")) %>%
+  left_join(t_small$true_sims %>% filter(location_id %in% locs_to_plot, scenario_id %in% c("S1", "S2"))) %>%
+  mutate(location_id = factor(location_id, levels = locs_to_plot))
+
+
+plot_calc_error = ggplot(data = approach_2_plot_df, aes(x = vax_cov)) + 
+  geom_point(aes(y = final_size), size = 1.25) + 
+  geom_point(aes(y = true_final_size), size = 1.25, shape = 21, color = "red", fill = "white", alpha = 0.3) +
+  geom_line(data = t_small$true_sims %>% filter(location_id %in% locs_to_plot), 
+            aes(y = true_final_size), linewidth = 0.5, color = "red", alpha = 0.3) + 
+  geom_line(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot), 
+            aes(y = fit, group = location_id), color = "red", linewidth = 0.3, linetype = "dashed") +
+  geom_point(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)), 
+             aes(y = fit), color = "red", shape = 21, fill = "white", size = 1.25) +
+  geom_segment(data = bind_rows(fit_obs_wR0) %>% 
+                 filter(alpha == 0, location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)) %>% 
+                 left_join(t_small$model_sims %>% 
+                              filter(model_id %in% c(model_to_plot, "T"), location_id %in% locs_to_plot, 
+                                     scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha)),
+               aes(x = vax_cov, xend = vax_cov, 
+                   y = fit, yend = final_size), arrow = arrow(length = unit(0.05, "npc")), linewidth = 0.3) +
+  geom_text(data = data.frame(location_id = locs_to_plot, 
+                              location_lab = loc_labs) %>%
+              mutate(location_id = factor(location_id, levels = locs_to_plot)),
+            aes(x = Inf, y = Inf, label = paste0("location ", location_lab)), 
+            hjust = 1, vjust = 1, size = 2.5) +
+  facet_wrap(vars(location_id), ncol = 1) +
+  scale_y_continuous(limits = c(0, 0.9)) + 
+  labs(x = "realized vaccine uptake\n(scenario axis)", 
+       y = "cumulative hospitalizations\n(projection axis)") +
+  theme_bw(base_size = 7) +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(),
+        panel.grid = element_blank(), 
+        strip.background = element_blank(), 
+        strip.text = element_blank())
+
+cowplot::plot_grid(plot_fit_obs, plot_calc_error, 
+                   rel_widths = c(0.6, 0.4), 
+                   nrow = 1, labels = c("A", "B"), label_size = 10)  
+ggsave("R/sim-experiment-final_size/mixture-distribution/approach2_illustration.pdf", width = 6, height = 3.5)
+
