@@ -464,7 +464,7 @@ ggsave("R/sim-experiment-final_size/mixture-distribution/coverage_nlocationssmal
 locs_to_plot = c(29, 5, 45)
 loc_labs = c(15, 41, 32)
 loc_cols = RColorBrewer::brewer.pal(4, "Set1")[2:4]
-model_to_plot = "M4"
+model_to_plot = "M8"
 
 # overall results
 mod_results = ggplot(data = fit_errors_gam_plot %>% filter(model_id == model_to_plot), 
@@ -1312,11 +1312,11 @@ ggsave("R/sim-experiment-final_size/mixture-distribution/method_comparison.pdf",
 
 
 ### APPROACH 1 FIGURE ----------------------------------------------------------
-locs_to_plot = c(29, 13, 19, 5)
-loc_labs = c(15, 39, 3, 41)
-loc_plaus = c(rep("S1", 2), rep("S2", 2))
+locs_to_plot = c(29, 13, 5) #19, 
+loc_labs = c(15, 39, 41)
+loc_plaus = c(rep("S1", 2), rep("S2", 1))
 loc_cols = RColorBrewer::brewer.pal(4, "Set1")[2:4]
-model_to_plot = "M4"
+model_to_plot = "M8"
 
 approach_1_plot_df = t_small$model_sims %>% 
   filter(model_id %in% c(model_to_plot, "T"), location_id %in% locs_to_plot, 
@@ -1362,37 +1362,45 @@ ggplot(data = approach_1_plot_df) +
         panel.grid = element_blank(), 
         strip.background = element_blank(), 
         strip.text = element_blank())
-ggsave("R/sim-experiment-final_size/mixture-distribution/approach1_illustration.pdf", width = 3.25, height = 3)
+ggsave("R/sim-experiment-final_size/mixture-distribution/approach1_illustration.pdf", width = 5, height = 2.5)
 
 #### APPROACH 2 FIGURE ---------------------------------------------------------
-locs_to_plot = c(31, 26)
-loc_labs = c(9, 46)
-loc_cols = RColorBrewer::brewer.pal(4, "Set1")[2:4]
-model_to_plot = "M4"
+# locs_to_plot = c(31, 45)
+# loc_labs = c(9, 46)
+# loc_cols = RColorBrewer::brewer.pal(5, "Set1")[4:5]
+locs_to_plot = c(31, 45) #29
+loc_labs = c(9, 32) #15
+loc_cols = rev(RColorBrewer::brewer.pal(5, "Set1")[4:5])
+model_to_plot = "M8"
 
 plot_fit_obs = ggplot(data = t_small$true_sims %>% filter(scenario_id == "T"), 
                  aes(x = vax_cov)) + 
-  geom_ribbon(data = bind_rows(fit_obs_noR0) %>% filter(alpha == 0.95) %>% 
-                mutate(lwr = ifelse(is.na(lwr), 0, lwr)), 
-              aes(ymin = lwr, ymax = upr), alpha = 0.075, fill = "red") +
+  geom_ribbon(data = fit_obs_wR0 %>% filter(location_id %in% locs_to_plot), 
+              aes(ymin = Q5, ymax = Q95, fill = as.factor(location_id)), alpha = 0.25) +
   # geom_line(data = bind_rows(fit_obs_noR0) %>% filter(alpha == 0.95) %>% 
   #               mutate(lwr = ifelse(is.na(lwr), 0, lwr)), 
   #             aes(y = fit), alpha = 0.8, color = "red", linetype = "dashed") +
-  geom_line(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot), 
-            aes(y = fit, group = location_id), alpha = 0.4, color = "red", linewidth = 0.3, linetype = "dashed") +
-  geom_point(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)), 
-            aes(y = fit), color = "red", shape = 21, fill = "white", size = 1.25) +
-  geom_point(aes(y = true_final_size), color = "red", size = 1.25) + 
+  geom_line(data = fit_obs_wR0 %>% filter(location_id %in% locs_to_plot), 
+            aes(y = Q50, color = as.factor(location_id)), linewidth = 0.3, linetype = "dashed") +
+  geom_point(data = fit_obs_wR0 %>% filter(location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)), 
+             aes(y = Q50, color = as.factor(location_id)),shape = 21, fill = "white", size = 1.5) +
+  geom_point(aes(y = true_final_size), color = "red", size = 1.5) + 
+  geom_point(data = t_small$true_sims %>% filter(scenario_id == "T", location_id %in% locs_to_plot), 
+             aes(y = true_final_size, color = as.factor(location_id)), size = 1.5) +
   geom_text(data = t_small$true_sims %>% filter(scenario_id == "T") %>%
               filter(location_id %in% locs_to_plot) %>% 
               left_join(data.frame(location_id = locs_to_plot, 
                                    new_location_id = loc_labs)), 
             aes(y = true_final_size, label = new_location_id), color = "white", size = 1) + 
   labs(x = "realized vaccine uptake\n(scenario axis)", 
-       y = "observed cumulative hospitalizations\n(projection axis)") +
-  scale_y_continuous(limits = c(0, 0.9)) + 
+       y = "observed cumulative hospitalizations\n(projection axis)", 
+       subtitle = "Step 1: fit observations across scenario axis") +
+  scale_color_manual(values = loc_cols) +
+  scale_fill_manual(values = loc_cols) + 
+  # scale_y_continuous(limits = c(0.1, 0.8)) + 
   theme_bw(base_size = 7) + 
-  theme(panel.grid.minor = element_blank(), 
+  theme(legend.position = "none", 
+        panel.grid.minor = element_blank(), 
         panel.grid.major.x = element_blank())
 plot_fit_obs
 
@@ -1404,39 +1412,52 @@ approach_2_plot_df = t_small$model_sims %>%
 
 
 plot_calc_error = ggplot(data = approach_2_plot_df, aes(x = vax_cov)) + 
-  geom_point(aes(y = final_size), size = 1.25) + 
-  geom_point(aes(y = true_final_size), size = 1.25, shape = 21, color = "red", fill = "white", alpha = 0.3) +
   geom_line(data = t_small$true_sims %>% filter(location_id %in% locs_to_plot), 
             aes(y = true_final_size), linewidth = 0.5, color = "red", alpha = 0.3) + 
-  geom_line(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot), 
-            aes(y = fit, group = location_id), color = "red", linewidth = 0.3, linetype = "dashed") +
-  geom_point(data = bind_rows(fit_obs_wR0) %>% filter(alpha == 0, location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)), 
-             aes(y = fit), color = "red", shape = 21, fill = "white", size = 1.25) +
-  geom_segment(data = bind_rows(fit_obs_wR0) %>% 
-                 filter(alpha == 0, location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)) %>% 
-                 left_join(t_small$model_sims %>% 
-                              filter(model_id %in% c(model_to_plot, "T"), location_id %in% locs_to_plot, 
-                                     scenario_id %in% c("S1", "S2")) %>% dplyr::select(-alpha)),
-               aes(x = vax_cov, xend = vax_cov, 
-                   y = fit, yend = final_size), arrow = arrow(length = unit(0.05, "npc")), linewidth = 0.3) +
+  geom_ribbon(data = fit_obs_wR0 %>% filter(location_id %in% locs_to_plot), 
+              aes(ymin = Q5, ymax = Q95, fill = as.factor(location_id)), alpha = 0.25) +
+  geom_line(data = fit_obs_wR0 %>% filter(location_id %in% locs_to_plot), 
+            aes(y = Q50, color = as.factor(location_id)), linewidth = 0.3, linetype = "dashed") +
+  geom_point(data = fit_obs_wR0 %>% filter(location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)), 
+             aes(y = Q50, color = as.factor(location_id)), shape = 21, fill = "white", size = 1.5) +
+  geom_point(aes(y = final_size), size = 1.5) + 
+  geom_point(aes(y = true_final_size), size = 1.5, shape = 21, color = "red", fill = "white", alpha = 0.3) +
+  # geom_segment(data = fit_obs_wR0 %>% 
+  #                filter(location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)) %>% 
+  #                left_join(t_small$true_sims %>% filter(location_id %in% locs_to_plot, scenario_id %in% c("S1", "S2"))),
+  #              aes(x = vax_cov, xend = vax_cov, 
+  #                  y = Q50, yend = true_final_size), linewidth = 1, alpha = 0.2) +
+  geom_segment(data = fit_obs_wR0 %>%
+                 filter(location_id %in% locs_to_plot, vax_cov %in% c(0.3, 0.5)) %>%
+                 left_join(t_small$model_sims %>%
+                              filter(model_id %in% c(model_to_plot, "T"), location_id %in% locs_to_plot,
+                                     scenario_id %in% c("S1", "S2"))),
+               aes(x = vax_cov, xend = vax_cov,
+                   y = Q50, yend = final_size), arrow = arrow(length = unit(0.05, "npc")), linewidth = 0.3) +
   geom_text(data = data.frame(location_id = locs_to_plot, 
                               location_lab = loc_labs) %>%
               mutate(location_id = factor(location_id, levels = locs_to_plot)),
-            aes(x = Inf, y = Inf, label = paste0("location ", location_lab)), 
+            aes(x = Inf, y = Inf, label = paste0("location ", location_lab), color = as.factor(location_id)), 
             hjust = 1, vjust = 1, size = 2.5) +
-  facet_wrap(vars(location_id), ncol = 1) +
-  scale_y_continuous(limits = c(0, 0.9)) + 
+  facet_wrap(vars(location_id), ncol = 1, scales = "free") +
+  scale_color_manual(values = loc_cols) +
+  scale_fill_manual(values = loc_cols) + 
+  # scale_y_continuous(limits = c(0.1, 0.8)) + 
   labs(x = "realized vaccine uptake\n(scenario axis)", 
-       y = "cumulative hospitalizations\n(projection axis)") +
+       y = "cumulative hospitalizations\n(projection axis)", 
+       subtitle = "Step 2: calculate error from inferred observations") +
   theme_bw(base_size = 7) +
-  theme(legend.position = "bottom", 
+  theme(legend.position = "none", 
         legend.title = element_blank(),
         panel.grid = element_blank(), 
         strip.background = element_blank(), 
         strip.text = element_blank())
+plot_calc_error
 
 cowplot::plot_grid(plot_fit_obs, plot_calc_error, 
                    rel_widths = c(0.6, 0.4), 
                    nrow = 1, labels = c("A", "B"), label_size = 10)  
 ggsave("R/sim-experiment-final_size/mixture-distribution/approach2_illustration.pdf", width = 6, height = 3.5)
+
+
 
