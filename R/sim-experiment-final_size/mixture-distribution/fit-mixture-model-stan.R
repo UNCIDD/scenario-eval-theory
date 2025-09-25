@@ -466,10 +466,10 @@ loc_cols = RColorBrewer::brewer.pal(4, "Set1")[2:4]
 model_to_plot = "M4"
 
 # overall results
-mod_results = ggplot(data = pred_intervals_shrink_small %>% filter(model_id == model_to_plot), 
+mod_results = ggplot(data = fit_errors_gam_plot %>% filter(model_id == model_to_plot), 
                     aes(x = vax_cov)) +
   geom_point(data = error_df_small %>% filter(model_id == model_to_plot), 
-             aes(x = vax_cov, y = error), color = "black", shape = 21, size = 2.5) +
+             aes(x = vax_cov, y = error), color = "darkgray", size = 2.5, shape = 21) +
   geom_ribbon(aes(ymin = Q5, ymax = Q95, fill = model_id), alpha = 0.15, fill = "darkgray") +
   geom_ribbon(aes(ymin = Q25, ymax = Q75, fill = model_id), alpha = 0.3, fill = "darkgray") +
   geom_line(aes(y = Q50, color = model_id), alpha = 0.8, size = 1.5, color = "darkgray") +
@@ -480,7 +480,8 @@ mod_results = ggplot(data = pred_intervals_shrink_small %>% filter(model_id == m
               mutate(loc_lab = loc_labs[which(locs_to_plot == location_id)], .by = "location_id"),
             aes(y = error, label = loc_lab), size = 1.8, color = "white") +
   facet_wrap(vars(model_id), scales = "free") +
-  labs(x = "realized vaccine uptake\n(scenario axis)") +
+  labs(x = "realized vaccine uptake\n(scenario axis)", 
+       subtitle = "Step 2: fit errors across scenario axis\nand infer error in modeled scenarios") +
   scale_color_manual(values = loc_cols) +
   theme_bw() +
   theme(legend.position = "none", 
@@ -513,7 +514,8 @@ loc_results = ggplot(data = t_small$model_sims %>%
   ), aes(x = vax_cov, xend = vax_cov, y = true_final_size, yend = final_size), arrow = arrow(length = unit(0.05, "npc")), size = 0.4) +
   facet_wrap(vars(location_id), ncol = 1) +
   labs(x = "realized vaccine uptake\n(scenario axis)", 
-       y = "cumulative hospitalizations\n(projection axis)") +
+       y = "cumulative hospitalizations\n(projection axis)", 
+       subtitle = "Step 1: calculate error\nin realized scenario") +
   scale_color_manual(values = loc_cols[sapply(sort(locs_to_plot), function(i){which(locs_to_plot == i)})]) +
   scale_fill_manual(values = c("black", "black", "white")) +
   scale_shape_manual(values = c(16, 16, 21)) +
@@ -525,9 +527,10 @@ loc_results = ggplot(data = t_small$model_sims %>%
 loc_results
 
 cowplot::plot_grid(loc_results, mod_results, rel_widths = c(0.32, 0.68), 
+                   align = "h", axis = "tb",
                    labels = c("A", "B"))
 
-ggsave("R/sim-experiment-final_size/mixture-distribution/approach_illustration.pdf", width = 7, height = 3.75)
+ggsave("R/sim-experiment-final_size/mixture-distribution/approach3_illustration.pdf", width = 7.5, height = 3.75)
 
 #### EXAMPLE SCENARIO ERROR CALCULATION ----------------------------------------
 # total error = calibration error + scenario error
