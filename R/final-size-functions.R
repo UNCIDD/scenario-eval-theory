@@ -306,7 +306,7 @@ calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2, sum
 #' @param xvals vector of x values for which to return prediction intervals
 #' @param invfn2 function, additional inverse function to be applied if predictions
 #' were transformed before fitting GAM, otherwise identity use function
-get_gam_PIs <- function(mod, xvals, invfn2){
+get_gam_PIs <- function(mod, xvals, invfn2 = function(x){return(x)}){
   beta <- coef(mod) # beta
   Vb <- vcov(mod) # V
   # simulate beta vectors 
