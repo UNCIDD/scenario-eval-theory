@@ -1227,19 +1227,36 @@ method_comparsion_results = method_comparsion_results %>%
   mutate(method = factor(method, c("plausible scenario", "fit observations", "estimate error distribution directly")))
   
 ## FIGURE 5
+sep_amount = 0.1
 p1 = all_ests_w_rank %>%
-  ggplot(aes(x = reorder(model_id, true_rank), color = method)) +
-  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q5, yend = Q95), linewidth = 0.3) + 
-  geom_segment(aes(xend = reorder(model_id, true_rank), y = Q25, yend = Q75), linewidth = 0.7) + 
-  geom_point(aes(y = Q50), size = 1) + 
+  mutate(model_id_ranked = reorder(model_id, true_rank)) %>%
+  filter(method != "truth") %>%
+  ggplot(aes(color = method)) +
+  geom_segment(aes(x = model_id_ranked, xend = model_id_ranked, y = Q5, yend = Q95), linewidth = 0.3, position = position_nudge(x = sep_amount)) + 
+  geom_segment(aes(x = model_id_ranked, xend = model_id_ranked, y = Q25, yend = Q75), linewidth = 0.7, position = position_nudge(x = sep_amount)) +
+  geom_point(aes(x = model_id_ranked, y = Q50), size = 1, position = position_nudge(x = sep_amount)) +
+  geom_segment(data = all_ests_w_rank %>% 
+                 mutate(model_id_ranked = reorder(model_id, true_rank)) %>% 
+                 filter(method == "truth") %>% dplyr::select(-method),
+               aes(x = model_id_ranked, xend = model_id_ranked,
+                   y = Q5, yend = Q95, color = "truth"), linewidth = 0.3, position = position_nudge(x = -sep_amount)) +
+  geom_segment(data = all_ests_w_rank %>% 
+                 mutate(model_id_ranked = reorder(model_id, true_rank)) %>% 
+                 filter(method == "truth") %>% dplyr::select(-method), 
+               aes(x = model_id_ranked, xend = model_id_ranked,
+                   y = Q25, yend = Q75, color = "truth"), linewidth = 0.7, position = position_nudge(x = -sep_amount)) +
+  geom_point(data = all_ests_w_rank %>% 
+               mutate(model_id_ranked = reorder(model_id, true_rank)) %>% 
+               filter(method == "truth") %>% dplyr::select(-method), 
+             aes(x = model_id_ranked, y = Q50, color = "truth"), size = 1, position = position_nudge(x = -sep_amount)) +
   # geom_point(aes(y = Q50, shape = correct_flag), color = 'white') +
-  geom_text(aes(y = Q5 - 0.02, label = rank), color ="black", size = 1.8) + 
+  # geom_text(aes(y = Q5 - 0.02, label = rank), color ="black", size = 1.8) + 
   facet_grid(cols = vars(method), rows = vars(scenario_id), 
              labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
   labs(x = "model", y = "distribution of errors across locations", color = "error estimation method") +
-  scale_color_manual(values = c("black", RColorBrewer::brewer.pal(3, "Set1"))) +
+  scale_color_manual(values = c(RColorBrewer::brewer.pal(3, "Set1"), "black")) +
   scale_shape_manual(values = c(NA, 8)) +
-  scale_x_discrete(labels = paste0("M", 1:10)) +
+  # scale_x_discrete(labels = paste0("M", 1:10)) +
   scale_y_continuous(limits = 0.25*c(-1,1)) +
   theme_bw(base_size = 7) + 
   theme(legend.position = "bottom", 
@@ -1254,7 +1271,7 @@ p3 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_ran
              labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
   labs(x = "model", y = "Kullback-Leibler divergence") +
   scale_color_brewer(palette = "Set1") +
-  scale_x_discrete(labels = paste0("M", 1:10)) +
+  # scale_x_discrete(labels = paste0("M", 1:10)) +
   theme_bw(base_size = 7) + 
   theme(legend.position = "none", 
         panel.grid = element_blank(),
@@ -1273,7 +1290,7 @@ p4 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_ran
              labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
   labs(x = "model", y = "Kolmogorov-Smirnov test statistic") +
   scale_color_brewer(palette = "Set1") +
-  scale_x_discrete(labels = paste0("M", 1:10)) +
+  # scale_x_discrete(labels = paste0("M", 1:10)) +
   scale_linetype_manual(values = c("33", "33", "39")) +
   theme_bw(base_size = 7) + 
   theme(legend.position = "none", 
