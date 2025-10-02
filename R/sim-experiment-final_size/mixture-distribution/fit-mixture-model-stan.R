@@ -656,7 +656,7 @@ fit_obs_wR0_long = bind_rows(fit_obs_wR0) %>%
   mutate(scenario_id = ifelse(vax_cov == new_vax_cov[1], "S1", "S2"))
 fit_obs_wR0 = fit_obs_wR0_long %>%
   mutate(quantile = paste0("Q", quantile*100)) %>%
-  dcast(scenario_id + vax_cov + location_id + location_R0 ~ quantile) 
+  dcast(scenario_id + vax_cov + location_id + location_R0 ~ quantile)
 
 # plot relationship vs. true relationship for each location
 ggplot(data = fit_obs_wR0, aes(x = vax_cov)) + 
@@ -1122,7 +1122,7 @@ method_comparsion_results = expand.grid(model_id = paste0("M", 1:n_models),
                                         scenario_id = c("S1", "S2"), 
                                         method = c("fit observations", "estimate error distribution directly", "plausible scenario"), 
                                         n_df = NA, n_truth = NA,
-                                        ks_test_stat = NA, ks_test_p = NA, klic = NA)
+                                        ks_test_stat = NA, ks_test_p = NA, klic = NA, mae = NA)
 for(i in 1:nrow(method_comparsion_results)){
   if(i %%10 == 0){print(i)}
   tmp_scenario_id = method_comparsion_results[i, "scenario_id"]
@@ -1140,6 +1140,7 @@ for(i in 1:nrow(method_comparsion_results)){
   tmp_kl = KL(rbind(dens_df/sum(dens_df), dens_truth/sum(dens_truth)), unit = "log2")
   method_comparsion_results[i, "ks_test_stat"] = tmp_ks$statistic
   method_comparsion_results[i, "ks_test_p"] = tmp_ks$p.value
+  method_comparsion_results[i, "mae"] = abs(mean(tmp_df$est_error) - mean(tmp_truth$error))
   # method_comparsion_results[i, "ks_p5_lvl"] = 1.358*sqrt((n_df + n_truth)/(n_df*n_truth)) # level of ks statistic s.t., p-value = 0.05
   method_comparsion_results[i, "klic"] = tmp_kl
 }
@@ -1154,6 +1155,7 @@ method_comparsion_results = method_comparsion_results %>%
   ) %>%
   mutate(method = factor(method, c("plausible scenario", "fit observations", "estimate error distribution directly")))
   
+
 ## FIGURE 5
 sep_amount = 0.1
 p1 = all_ests_w_rank %>%
@@ -1182,7 +1184,7 @@ p1 = all_ests_w_rank %>%
   facet_grid(cols = vars(method), rows = vars(scenario_id), 
              labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
   labs(x = "model", y = "distribution of errors across locations", color = "error estimation method") +
-  scale_color_manual(values = c(RColorBrewer::brewer.pal(3, "Set1"), "black")) +
+  scale_color_manual(values = c(RColorBrewer::brewer.pal(3, "Set1"), "darkgray")) +
   scale_shape_manual(values = c(NA, 8)) +
   # scale_x_discrete(labels = paste0("M", 1:10)) +
   scale_y_continuous(limits = 0.25*c(-1,1)) +
@@ -1192,18 +1194,31 @@ p1 = all_ests_w_rank %>%
         panel.grid.minor = element_blank(), 
         strip.background = element_blank(), 
         strip.placement = "outside") 
-p3 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_rank), y = klic, color = method)) + 
-  geom_point(size = 1.5, alpha = 0.8) + 
+# p3 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_rank), y = klic, color = method)) + 
+#   geom_point(size = 1.5, alpha = 0.8) + 
+#   # geom_line(alpha = 0.2) +
+#   facet_grid(rows = vars(scenario_id), 
+#              labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
+#   labs(x = "model", y = "Kullback-Leibler divergence") +
+#   scale_color_brewer(palette = "Set1") +
+#   # scale_x_discrete(labels = paste0("M", 1:10)) +
+#   theme_bw(base_size = 7) + 
+#   theme(legend.position = "none", 
+#         panel.grid = element_blank(),
+#         strip.background = element_blank(), 
+#         strip.placement = "outside")
+p3 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_rank), y = mae, color = method)) +
+  geom_point(size = 1.5, alpha = 0.8) +
   # geom_line(alpha = 0.2) +
-  facet_grid(rows = vars(scenario_id), 
-             labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
-  labs(x = "model", y = "Kullback-Leibler divergence") +
+  facet_grid(rows = vars(scenario_id),
+             labeller = labeller(scenario_id = scenario_labs), switch = "y") +
+  labs(x = "model", y = "absolute difference between means") +
   scale_color_brewer(palette = "Set1") +
   # scale_x_discrete(labels = paste0("M", 1:10)) +
-  theme_bw(base_size = 7) + 
-  theme(legend.position = "none", 
+  theme_bw(base_size = 7) +
+  theme(legend.position = "none",
         panel.grid = element_blank(),
-        strip.background = element_blank(), 
+        strip.background = element_blank(),
         strip.placement = "outside")
 p4 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_rank), y = ks_test_stat, color = method)) + 
   geom_point(size = 1.5, alpha = 0.8) + 
@@ -1229,7 +1244,7 @@ l = cowplot::get_legend(p1)
 # cowplot::plot_grid(
   cowplot::plot_grid(
     p1 + theme(legend.position = "none"), 
-    cowplot::plot_grid(p4, p3, nrow = 1), 
+    cowplot::plot_grid(p3, p4, nrow = 1), 
     l,
     ncol = 1, rel_heights = c(0.475, 0.475, 0.05), labels = c("A", "B", NA), label_size = 10
     # nrow = 1, rel_widths = c(0.6, 0.4), align = "h", axis = "t", labels = c("A", "B")
@@ -1239,7 +1254,7 @@ l = cowplot::get_legend(p1)
 ggsave("R/sim-experiment-final_size/mixture-distribution/method_comparison.pdf", width = 7, height = 5)
 
 
-### APPROACH 1 FIGURE ----------------------------------------------------------
+f### APPROACH 1 FIGURE ----------------------------------------------------------
 locs_to_plot = c(29, 13, 5) #19, 
 loc_labs = c(15, 39, 41)
 loc_plaus = c(rep("S1", 2), rep("S2", 1))
