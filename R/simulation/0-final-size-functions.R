@@ -4,9 +4,8 @@
 #' @description
 #' The full simulation includes (1) generation of final size 
 #' scenario projections for n_models across n_locations under two vaccination 
-#' coverage scenarios; (2) estimating the error distribution for each model, and
-#' (3) calculating the coverage of the estimated error distribution against the
-#' true error distribution for each model
+#' coverage scenarios; (2) calculating the error various errors for each model
+#' and the truth
 #' 
 #' @param n_locations integer, number of locations to simulate
 #' @param n_models integer, number of models to simulate
@@ -33,38 +32,51 @@
 #'                          the bias of an individual model in estimating R0
 #'                          across locations); defaults to 0, i.e., no variation 
 #'                          in model bias across locations
-#' @param fit_outcomes logical, TRUE to estimate error distribution and calculate coverage
 #' @param final_size_method "analytical" to use final_size() function, "simulation"
 #'                          to use deterministic SIR model with I^alpha
 #' @param alpha_lwr double lower bound for uniform distribtuion to draw model-specific alpha
 #' @param alpha_upr double upper bound for uniform distribution to draw model-specific alpha
 #' @param alpha_sd double standard deviation to draw location-specific alpha (around model-specific alpha)
 #' 
+#' 
+#' 
 #' @details
 #' The simulation proceeds in the following steps: 
 #' 1. generate predictions of final size from each model under specified scenarios 
 #'    and true values for each location
 #' 2. calculate errors for each projection, across locations/models
-#' 3. (optional) estimate error distribution 
 #' 
 #' To generate predictions of final size, we first draw a realized vaccination
-#' coverage and a true R0 value for each location. Using the `finalSize` package, 
-#' we calculate the true final epidemic size for the low and high vaccination 
-#' scenarios, as well as the realized vaccination scenario. If cov_R0 is NA, 
-#' these values are drawn independently from uniform distributions (i.e., for 
-#' each location i, true_vax_cov_i ~ U(`true_vax_cov_lwr`, `true_vax_cov_upr`) and 
-#' R0_i ~ U(`R0_lwr`, `R0_upr`)). However, if a value is specified for `cov_R0`, we 
-#' draw correlated values for realized vaccination coverage and true R0 from
+#' coverage and a true R0 value for each location. We calculate the true final
+#' epidemic size for the low and high vaccination scenarios, as well as the
+#' realized vaccination scenario. If cov_R0 is NA, these values are drawn
+#' independently from uniform distributions (i.e., for each location i,
+#' true_vax_cov_i ~ U(`true_vax_cov_lwr`, `true_vax_cov_upr`) and 
+#' R0_i ~ U(`R0_lwr`, `R0_upr`)). However, if a value is specified for `cov_R0`,
+#' we  draw correlated values for realized vaccination coverage and true R0 from
 #' a multi-variate normal distribution, with covariance `cov_R0`. 
 #' 
+#' We calculate the true final epidemic size for the low and high vaccination 
+#' scenarios, as well as the realized vaccination scenario. There are two possible 
+#' methods to calculate final size, `final_size_method = "analytical"` which
+#' uses the `finalSize` package, or `final_size_method = "simulation"` which
+#' solves a system of ODEs over 1.5 years.
+#' 
 #' Then, after true values for each location have been drawn, we draw a model-
-#' sepcific bias in R0 estimates, where for model j, 
+#' specific bias in R0 estimates, where for model j, 
 #' model_bias_j ~ N(`model_bias_R0_mean`, `model_bias_R0_sd`). This provides
-#' control of whether models tend to over- or under-estimate R0 for a given 
-#' location. Then, the model estimated R0 in a given location is the true R0 for 
-#' that location plus the model bias. The projected final size is again 
-#' calculated using the `finalSize` package based on model estimated R0 for 
-#' both scenarios of interest and for the realized vaccination coverage value.
+#' control of whether models tend to over- or under-estimate R0 across
+#' locations. The model estimated R0 in a given location is the true R0 for 
+#' that location plus the model bias and the location specific bias. 
+#' 
+#' We also include the possibility of scaling the infection term 
+#' I^alpha. Again, we draw a model-specific alpha, where for model j, 
+#' model_alpha_j ~ U(`alpha_lwr`, `alpha_upr`) and the location-specific alpha is 
+#' then alpha_i ~ N(model_alpha_j, alpha_sd). We set the true alpha to 
+#' `mean(alpha_lwr, alpha_upr)`. 
+#' 
+#' The projected final size is again calculated based on model estimated R0 and alpha 
+#' for both scenarios of interest and for the realized vaccination coverage value.
 #' 
 #' Once projections and true values are generated, we calculate the errors for 
 #' each projection as projected final size minus true final size. The entire 
@@ -72,18 +84,14 @@
 #' true error relationship for each location is available if desired. These are
 #' recorded with scenario_id = "E".
 #' 
-#' TO ADD/UPDATE: DETAILS ABOUT ESTIMATING ERROR DISTRIBUTION
-#' 
 #' @return list, including simulated values for each model/location/scenario 
-#' (model_sims), true values for each location(true_sims), and errors for each 
-#' model/location/scenario (errors); if error distribution is estimated, a 
-#' data.frame containing estimated quantiles for each model and scnenario (error_df)
-#' and the corresponding coverage (coverage) are also included in the list
+#' (model_sims), true values for each location (true_sims), and errors for each 
+#' model/location/scenario (errors)
 full_sim <- function(
     n_locations, n_models, seed = 100, vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
     true_vax_cov_lwr = NA, true_vax_cov_upr = NA, R0_lwr = 2, R0_upr = 3.5, 
     cov_R0 = NA, model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
-    model_bias_ind_sd = 0, fit_outcomes = TRUE, final_size_method = "analytical", 
+    model_bias_ind_sd = 0, final_size_method = "analytical", 
     alpha_upr = 1, alpha_lwr = 0.95, alpha_sd = 0.01){
   if(is.na(true_vax_cov_lwr)){true_vax_cov_lwr = vax_cov_S1}
   if(is.na(true_vax_cov_upr)){true_vax_cov_upr = vax_cov_S2}
@@ -99,20 +107,12 @@ full_sim <- function(
     rename(true_final_size = final_size) %>%
     dplyr::select(location_id, scenario_id, location_R0, vax_cov, true_final_size)
   errors <- calculate_errors(model_sims, true_sims)$errors
-  if(fit_outcomes){
-    quant_reg_est <- estimate_w_gamlss(vax_cov_S1 = vax_cov_S1, 
-                                       vax_cov_S2 = vax_cov_S2, errors_df = errors, 
-                                       n_models = n_models)
-    cov <- calculate_coverage(quant_reg_est, errors, vax_cov_S1, vax_cov_S2)
-    return(list(model_sims = model_sims, true_sims = true_sims, errors = errors, 
-                quant_reg = quant_reg_est, coverage = cov))
-  }
-  else{
-    return(list(model_sims = model_sims, true_sims = true_sims, errors = errors))
-  }
+  return(list(model_sims = model_sims, true_sims = true_sims, errors = errors))
 }
 
-#' 
+#### HELPERS -------------------------------------------------------------------
+
+#' function to simulate final size predictions from each model and the truth
 generate_final_size_preds <- function(n_locations, n_models, seed, 
                                       true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
                                       vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
@@ -215,6 +215,7 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
   return(sims)
 }
 
+#' function to calculate errors for each model and the truth
 calculate_errors <- function(model_sims, true_sims){
   errors = model_sims %>% 
     left_join(true_sims, by = join_by(location_id, scenario_id, vax_cov)) %>%
@@ -223,115 +224,7 @@ calculate_errors <- function(model_sims, true_sims){
   return(list(model_sims = model_sims, true_sims = true_sims, errors = errors))
 }
 
-estimate_w_gamlss <- function(vax_cov_S1, vax_cov_S2, errors_df, n_models,
-                                        quantiles = c(0.01, 0.025, seq(0.05, 0.95, 0.05), 0.975, 0.99)){
-  new_vax_cov = data.frame(vax_cov = seq(vax_cov_S1, vax_cov_S2, length.out = 100))
-  quant_fits <- vector("list", n_models)
-  for(i in 1:n_models){
-    dat_filt = errors_df %>%
-      filter(model_id == paste0("M", i), scenario_id == "T") 
-    gam_fit <- try({
-      gamlss(error ~ cs(vax_cov),
-             sigma.formula = ~ cs(vax_cov), data = dat_filt,  family = NO, trace=FALSE)#, family = GA)
-    }, silent = TRUE)
-    ### quantile regression alternative
-    # quant_fits[[i]] = as.data.frame()
-    # qr_fit = rq(error ~ vax_cov, tau = quantiles, data = dat_filt)
-    # quant_fits[[i]] = as.data.frame(predict(qr_fit, newdata = new_vax_cov)) %>%
-    #   mutate(vax_id = 1:n()) %>%
-    #   reshape2::melt(c("vax_id")) %>%
-    #   mutate(vax_cov = new_vax_cov[vax_id, "vax_cov"], 
-    #          variable = as.double(gsub("tau= ", "", variable))) %>%
-    #   rename(quantile = variable)
-    if(any(class(gam_fit) == "try-error")){
-      gam_fit <- try({
-        gamlss(error ~ pb(vax_cov), method=CG(), #method = mixed(2,10),
-               sigma.formula = ~ pb(vax_cov), data = dat_filt,  family = NO)#, family = GA) family = SN1
-      }, silent = TRUE)
-      if(any(class(gam_fit) == "try-error")){
-        print("error")
-        quant_fits[[i]] = NA
-        next
-      }
-    }
-    g_pls = centiles.pred(gam_fit, type = "centiles", 
-                          cent = quantiles*100,
-                          xvalues = new_vax_cov$vax_cov, xname = "vax_cov", 
-                          data = dat_filt)
-    quant_fits[[i]] = reshape2::melt(g_pls, c("x")) %>%
-      mutate(quantile = quantiles[variable]) %>%
-      rename(vax_cov = x) %>%
-      dplyr::select(-variable)
-  }
-  quant_fits <- bind_rows(quant_fits, .id = "model_id") %>%
-    mutate(model_id = paste0("M", model_id)) 
-  return(quant_fits)
-}
-
-calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2, summarize_by = "all"){
-  cov_quant <- quant_fits %>%
-    filter(vax_cov %in% c(vax_cov_S1, vax_cov_S2)) %>%
-    mutate(scenario_id = ifelse(vax_cov == vax_cov_S1, "S1", "S2")) %>%
-    filter(quantile != 0.5) %>%
-    mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)),3), 
-           bound = ifelse(quantile < 0.5, "lwr", "upr")) %>%
-    reshape2::dcast(model_id + vax_cov + scenario_id + alpha ~ bound, value.var = "value") %>%
-    dplyr::select(model_id, scenario_id, alpha, lwr, upr) %>%
-    left_join(
-      error_df %>%
-        filter(scenario_id %in% c("S1", "S2")) %>%
-        mutate(obs = error) %>%
-        dplyr::select(model_id, location_id, scenario_id, obs),
-      relationship = "many-to-many", by = join_by(model_id, scenario_id)
-    ) %>%
-    mutate(cov = ifelse(obs <= upr & obs >= lwr, 1, 0))
-  if(summarize_by == "all"){
-    cov_quant <- cov_quant  %>%
-      summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha")) 
-  }
-  else if(summarize_by == "model"){
-    cov_quant <- cov_quant  %>%
-      summarize(cov = sum(cov)/n(), .by = c("scenario_id", "model_id", "alpha")) 
-  }
-  return(cov_quant)
-}
-
-#' Simulate prediction intervals from GAM fit
-#' 
-#' adapted from: https://www.mail-archive.com/r-help@r-project.org/msg132608.html
-#' example with normal: https://mikl.dk/post/2019-prediction-intervals-for-gam/
-#' here assuming normal distribution
-#' 
-#' @param mod GAM model fit
-#' @param xvals vector of x values for which to return prediction intervals
-#' @param invfn2 function, additional inverse function to be applied if predictions
-#' were transformed before fitting GAM, otherwise identity use function
-get_gam_PIs <- function(mod, xvals, invfn2 = function(x){return(x)}){
-  beta <- coef(mod) # beta
-  Vb <- vcov(mod) # V
-  # simulate beta vectors 
-  reps <- 10000 # num_beta_vecs
-  nb <- length(beta)
-  br <- t(chol(Vb)) %*% matrix(rnorm(reps*nb), nb, reps) + beta # beta_sims <- beta + t(Cv) %*% matrix(nus, length_beta, num_beta_vecs) 
-  # replicates to linear predictors
-  Xp <- predict(mod, newdata = xvals, type = "lpmatrix") # covar_sim (using grid of xvals instead of random samples)
-  lp <- Xp%*%br # linpred_sim = covar_sim %*% beta_sims
-  invfun <- family(mod)$linkinv # invlink
-  fv <- invfun(lp) # exp_val_sim
-  yr <- matrix(rnorm(fv*0, mean = fv, sd = sqrt(summary(mod)$scale)), # y_sim
-               nrow(fv), ncol(fv)) 
-  # transform and summarize
-  ret <- reshape2::melt(yr, keep.rownames = TRUE) %>%
-    rename(xval_id = Var1, sim = Var2) %>% 
-    mutate(value_inv = invfn2(value)) %>% 
-    reframe(quantile = quantiles, 
-              value = quantile(value_inv, quantiles), .by = c("xval_id")) %>% 
-    left_join(data.frame(xval_id = 1:length(unlist(xvals)), 
-                         xval = xvals)) %>% 
-    dplyr::select(-xval_id)
-  return(ret)
-}
-
+#' SIR differential equations
 ode_sir = function(t, y, parameters) {
   with(as.list(c(y, parameters)), {
     # Define equations
