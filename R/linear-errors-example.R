@@ -54,7 +54,7 @@ ggplot(data = all_preds %>% filter(scenario_id != "E"), aes(x = scenario_value, 
 # calculate errors
 true_preds <- all_preds %>% filter(model_id == "T") %>%
   rename(true_value = value) %>%
-  select(location_id, scenario_id, scenario_value, true_value)
+  dplyr::select(location_id, scenario_id, scenario_value, true_value)
 model_preds <-  all_preds %>% filter(model_id != "T")
 
 errors <- left_join(model_preds, true_preds) %>%
@@ -105,7 +105,7 @@ ggplot(data = all_preds_scaledlocation %>% filter(scenario_id != "E"),
 # calculate errors
 true_preds_scaledlocation <- all_preds_scaledlocation %>% filter(model_id == "T") %>%
   rename(true_value = value) %>%
-  select(location_id, scenario_id, scenario_value, true_value)
+  dplyr::select(location_id, scenario_id, scenario_value, true_value)
 model_preds_scaledlocation <-  all_preds_scaledlocation %>% filter(model_id != "T")
 
 errors_scaledlocation <- left_join(model_preds_scaledlocation, true_preds_scaledlocation) %>%
@@ -170,7 +170,7 @@ preds %>%
 # get coverage
 cov = preds %>%
   filter(scenario_value %in% c(scenario1, scenario2)) %>%
-  select(-fit) %>%
+  dplyr::select(-fit) %>%
   melt(c("scenario_value", "model_id")) %>%
   mutate(quantile = as.integer(substr(variable, 2, nchar(as.character(variable))))/1000) %>%
   mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)),3), 
@@ -206,8 +206,8 @@ get_samps = function(value, quantile, n_samps = 1e5,
 calibration_error = preds %>%
   filter(scenario_value %in% c(scenario1, scenario2)) %>%
   mutate(scenario_id = ifelse(scenario_value == scenario1, "S1", "S2")) %>%
-  select(-fit) %>%
-  select(-scenario_value) %>%
+  dplyr::select(-fit) %>%
+  dplyr::select(-scenario_value) %>%
   melt(c("scenario_id", "model_id")) %>%
   mutate(quantile = as.integer(substr(variable, 2, nchar(as.character(variable))))/1000) %>%
   reframe(get_samps(value, quantile), .by = c("scenario_id", "model_id")) %>%
@@ -216,10 +216,10 @@ calibration_error = preds %>%
 scenario_error = calibration_error %>%
   left_join(model_preds_scaledlocation %>% 
               filter(scenario_id %in% c("S1", "S2")) %>%
-              select(model_id, location_id, scenario_id, value) %>%
-              left_join(true_preds_scaledlocation %>% filter(scenario_id == c("T")) %>% select(-scenario_value, -scenario_id)) %>%
+              dplyr::select(model_id, location_id, scenario_id, value) %>%
+              left_join(true_preds_scaledlocation %>% filter(scenario_id == c("T")) %>% dplyr::select(-scenario_value, -scenario_id)) %>%
               mutate(observed_error = value - true_value) %>% 
-              select(model_id, location_id, scenario_id, observed_error), 
+              dplyr::select(model_id, location_id, scenario_id, observed_error), 
             relationship = "many-to-many", by = join_by(model_id, scenario_id)) %>%
   mutate(scenario_error = observed_error - calibration_error)
 
@@ -245,6 +245,7 @@ scenario_error %>%
   theme_bw() + 
   theme(legend.position = "none", 
         panel.grid.minor = element_blank())
+
 ggsave("scenario_error_estimate.pdf", width = 10, height = 6)
 
 # now percent scenario error
