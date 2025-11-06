@@ -13,14 +13,6 @@ loc_labs = obs_df %>%
 loc_labs = loc_labs %>% 
   mutate(lab = factor(lab, levels = loc_labs$lab))
 
-approach_labs = c("truth", "approach 1: most plausible scenario", 
-                  "approach 2: estimate observations (no covariates)", "approach 2: estimate observations (covariates)", 
-                  "approach 3: estimate error (no covariates)", "approach 3: estimate error (covariates)")
-names(approach_labs) = c("truth", "1", "2-nocovariates", "2-covariates", "3-nocovariates", "3-covariates")
-
-model_labs = paste0("model ", 1:n_models)
-names(model_labs) = paste0("M", 1:n_models)
-
 # plot estimated errors for each location (when possible) 
 all_ests_all_locs %>%
   filter(round(quantile,2) %in% c(0.05, 0.25, 0.5, 0.75, 0.95), scenario_id %in% c("S1", "S2"), 
