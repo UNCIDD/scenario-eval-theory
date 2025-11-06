@@ -160,17 +160,17 @@ all_ests_across_locs = approach1_errors %>%
   ) %>%
   # add approach 3
   bind_rows(
-    approach3_cov_errors_across_locs %>% mutate(approach = "3-covariates")
+    approach3_cov_errors_across_locs %>% mutate(approach = "3-covariates") %>% filter(scenario_id %in% c("S1", "S2"))
   ) %>%
   bind_rows(
-    approach3_nocov_errors_across_locs %>% mutate(approach = "3-nocovariates")
+    approach3_nocov_errors_across_locs %>% mutate(approach = "3-nocovariates") %>% filter(scenario_id %in% c("S1", "S2"))
   ) %>% 
   # add truth
   bind_rows(
     sim_out$errors %>% 
       reframe(quantile = quantiles, 
               value = quantile(error, quantiles), .by = c("vax_cov", "model_id", "scenario_id")) %>%
-      mutate(approach = "truth")
+      mutate(approach = "truth") %>% filter(scenario_id %in% c("S1", "S2"))
   )
 saveRDS(all_ests_across_locs, "output/simulation/estimated_errors_across_locations.rds")
   
@@ -184,23 +184,15 @@ all_ests_all_locs = approach1_errors %>%
   bind_rows(
     approach2_cov_errors_all_locs %>% mutate(approach = "2-covariates")
   ) %>%
-  # bind_rows(
-  #   approach2_nocov_errors_all_locs %>% mutate(approach = "2-nocovariates")
-  # ) %>%
   # add approach 3
   bind_rows(
-    approach3_cov_errors_all_locs %>% select(-location_R0) %>% mutate(approach = "3-covariates")
+    approach3_cov_errors_all_locs %>% select(-location_R0) %>% mutate(approach = "3-covariates")  %>% filter(scenario_id %in% c("S1", "S2"))
   ) %>%
-  # bind_rows(
-  #   approach3_nocov_errors_across_locs %>% mutate(approach = "3-nocovariates")
-  # ) %>%
   # add truth
   bind_rows(
     sim_out$errors %>% select(model_id, location_id, scenario_id, vax_cov, error) %>%
       mutate(quantile = 0.5, approach = "truth") %>%
-      rename(value = error)
+      rename(value = error)  %>% filter(scenario_id %in% c("S1", "S2"))
   )
 saveRDS(all_ests_all_locs, "output/simulation/estimated_errors_location_specific.rds")
-
-  
 
