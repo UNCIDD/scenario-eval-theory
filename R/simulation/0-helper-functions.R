@@ -44,3 +44,36 @@ get_samps <- function(quantile, value, n_samps = 1e4, seed = 1002){
   set.seed(seed)
   approx(quantile, value, runif(n_samps), yleft = min(value), yright = max(value))$y
 }
+
+
+#' Calculate coverage of a given distribtuion
+#' 
+#' @param 
+calculate_coverage <- function(quant_fits, error_df, vax_cov_S1, vax_cov_S2, summarize_by = "all"){
+  cov_quant <- quant_fits %>%
+    filter(vax_cov %in% c(vax_cov_S1, vax_cov_S2)) %>%
+    mutate(scenario_id = ifelse(vax_cov == vax_cov_S1, "S1", "S2")) %>%
+    filter(quantile != 0.5) %>%
+    mutate(alpha = round(ifelse(quantile < 0.5, 1-2*quantile, 1-2*(1-quantile)),3), 
+           bound = ifelse(quantile < 0.5, "lwr", "upr")) %>%
+    reshape2::dcast(model_id + vax_cov + scenario_id + alpha ~ bound, value.var = "value") %>%
+    dplyr::select(model_id, scenario_id, alpha, lwr, upr) %>%
+    left_join(
+      error_df %>%
+        filter(scenario_id %in% c("S1", "S2")) %>%
+        mutate(obs = error) %>%
+        dplyr::select(model_id, location_id, scenario_id, obs),
+      relationship = "many-to-many", by = join_by(model_id, scenario_id)
+    ) %>%
+    mutate(cov = ifelse(obs <= upr & obs >= lwr, 1, 0))
+  if(summarize_by == "all"){
+    cov_quant <- cov_quant  %>%
+      summarize(cov = sum(cov)/n(), .by = c("scenario_id", "alpha")) 
+  }
+  else if(summarize_by == "model"){
+    cov_quant <- cov_quant  %>%
+      summarize(cov = sum(cov)/n(), .by = c("scenario_id", "model_id", "alpha")) 
+  }
+  return(cov_quant)
+}
+
