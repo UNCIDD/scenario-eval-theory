@@ -9,8 +9,8 @@ method_comparsion_results = readRDS("output/simulation/performance_evaluation_re
 
 #### PANEL A: ALL ESTIMATED DISTRIBUTIONS --------------------------------------
 approach_general_labs = c("approach 1: most plausible scenario", 
-                          "approach 2: estimate observations", 
-                          "approach 3: estimate error", "truth")
+                          "approach 2: estimate error", 
+                          "approach 3: estimate observations", "truth")
 names(approach_general_labs) = c(as.character(1:3), "t")
 
 all_ests_w_rank = all_ests %>%
@@ -111,14 +111,6 @@ p4 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_ran
 p4 
 
 #### COMBINE INTO SINGLE PANEL -------------------------------------------------
-# l = cowplot::get_legend(p1)
-# cowplot::plot_grid(
-#   p1 + theme(legend.position = "none"), 
-#   cowplot::plot_grid(p3, p4, nrow = 1), 
-#   l,
-#   ncol = 1, rel_heights = c(0.46, 0.46, 0.08), labels = c("A", "B", NA), label_size = 10
-# )
-
 cowplot::plot_grid(
   p1, 
   cowplot::plot_grid(p3, p4, nrow = 1), 

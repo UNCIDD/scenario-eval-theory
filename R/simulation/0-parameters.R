@@ -18,8 +18,8 @@ alphas = sort(unique(sapply(quantiles, function(i){round(ifelse(i < 0.5, 1-2*i, 
 
 # plotting utilities
 approach_labs = c("truth", "approach 1: most plausible scenario", 
-                  "approach 2: estimate observations (no covariates)", "approach 2: estimate observations (covariates)", 
-                  "approach 3: estimate error (no covariates)", "approach 3: estimate error (covariates)")
+                  "approach 2: estimate error (no covariates)", "approach 2: estimate error (covariates)",
+                  "approach 3: estimate observations (no covariates)", "approach 3: estimate observations (covariates)")
 names(approach_labs) = c("truth", "1", "2-nocovariates", "2-covariates", "3-nocovariates", "3-covariates")
 
 model_labs = paste0("model ", 1:n_models)
