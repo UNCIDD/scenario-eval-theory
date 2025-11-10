@@ -122,5 +122,10 @@ ggsave("output/figures/method_comparison.pdf", width = 7, height = 6)
 
 
 
-
+## how many significant? 
+method_comparsion_results %>%
+  mutate(ks_sig = 1.358*sqrt((n_df + n_truth)/(n_df*n_truth))) %>%
+  mutate(ks_flag = ifelse(ks_test_stat < ks_sig, TRUE, FALSE)) %>% 
+  summarize(n_sig = sum(ks_flag), 
+            n_tot = n(), .by = c("scenario_id", "approach"))
 
