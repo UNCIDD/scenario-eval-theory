@@ -12,6 +12,9 @@ sim_out = readRDS("output/simulation/sim_out.rds")
 obs_df = sim_out$true_sims %>%
   filter(scenario_id == "T")
 
+pred_mat_covar = expand.grid(vax_cov = new_vax_cov, 
+                             location_id = unique(obs_df$location_id)) %>%
+  left_join(unique(obs_df %>% dplyr::select(location_id, location_R0)))
 
 #### IMPLEMENT APPROACH 1 ------------------------------------------------------
 # step 1: find most plausible scenario for each location 
@@ -42,6 +45,7 @@ gam_errors_nocov = lapply(gam_errors_nocov, get_gam_PIs, xvals = data.frame(vax_
 approach2_nocov_errors_across_locs = bind_rows(gam_errors_nocov, .id = "model_id") %>%
   mutate(model_id = paste0("M", model_id)) %>%
   mutate(scenario_id = ifelse(vax_cov == vax_scenarios[1], "S1", ifelse(vax_cov == vax_scenarios[2], "S2", "E")))
+saveRDS(approach2_nocov_errors_across_locs, "output/simulation/estimated_errors_approach2_full_across_locs.rds")
 
 #### IMPLEMENT APPROACH 2 (WITH COVARIATES) ------------------------------------
 # step 1: get errors in realized scenarios
@@ -49,9 +53,6 @@ approach2_nocov_errors_across_locs = bind_rows(gam_errors_nocov, .id = "model_id
 
 # step 2: fit errors in realized scenarios (with location cov)
 gam_errors_cov <- vector("list", n_models)
-pred_mat_covar = expand.grid(vax_cov = new_vax_cov, 
-                             location_id = unique(obs_df$location_id)) %>%
-  left_join(unique(obs_df %>% dplyr::select(location_id, location_R0)))
 approach2_obs_covariate <- vector("list", length(n_models))
 for(i in 1: n_models){
   gam_errors_cov[[i]] <- gam(error ~ s(vax_cov) + location_R0, data = error_df %>% filter(model_id == paste0("M", i)))
@@ -68,6 +69,7 @@ for(i in 1: n_models){
 approach2_cov_errors_all_locs = bind_rows(approach2_obs_covariate) %>%
   rename(vax_cov = xval.vax_cov, location_R0 = xval.location_R0) %>% 
   mutate(scenario_id = ifelse(vax_cov == vax_scenarios[1], "S1", ifelse(vax_cov == vax_scenarios[2], "S2", "E")))
+saveRDS(approach2_cov_errors_all_locs, "output/simulation/estimated_errors_approach2_full_location_specific.rds")
 
 # distribution of errors across locations
 approach2_cov_errors_across_locs = approach2_cov_errors_all_locs %>%
@@ -123,6 +125,7 @@ for(i in 1:nrow(pred_mat_covar)){
 approach3_obs_covariate = bind_rows(approach3_obs_covariate) %>%
   rename(vax_cov = xval.vax_cov, location_R0 = xval.location_R0) %>% 
   mutate(scenario_id = ifelse(vax_cov == new_vax_cov[1], "S1", "S2"))
+saveRDS(approach3_obs_covariate, "output/simulation/estimated_obs_approach3.rds")
 
 # step 2: calculate error
 approach3_samp_covariate = approach3_obs_covariate %>%
@@ -182,7 +185,7 @@ all_ests_all_locs = approach1_errors %>%
          approach = "1") %>%
   # add approach 2
   bind_rows(
-    approach2_cov_errors_all_locs %>% select(-location_R0) %>% mutate(approach = "2-covariates")  %>% filter(scenario_id %in% c("S1", "S2"))
+    approach2_cov_errors_all_locs %>% select(-location_R0) %>% mutate(approach = "2-covariates")
   ) %>%
   # add approach 3
   bind_rows(

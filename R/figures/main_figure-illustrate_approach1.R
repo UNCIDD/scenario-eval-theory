@@ -1,7 +1,6 @@
 library(ggplot2)
 library(dplyr)
 
-
 #### SETUP ---------------------------------------------------------------------
 sim_out = readRDS("output/simulation/sim_out.rds")
 
@@ -48,7 +47,7 @@ ggplot(data = approach_1_plot_df) +
             hjust = 1, vjust = 1, size = 2.5) +
   facet_wrap(vars(location_id)) +
   labs(x = "realized vaccine uptake\n(scenario axis)", 
-       y = "cumulative hospitalizations\n(projection axis)") +
+       y = "final epidemic size\n(projection axis)") +
   scale_color_manual(values = c("red", "black")) +
   scale_x_continuous(labels = scales::percent) +
   theme_bw(base_size = 7) +
