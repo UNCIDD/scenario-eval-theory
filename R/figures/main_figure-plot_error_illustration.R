@@ -49,14 +49,14 @@ p_base <- ggplot(data = example_data) +
                      labels = c("projection", "observation")) + 
   scale_fill_manual(values = c("white", "white", "black", "#ff420e")) + 
   scale_x_continuous(breaks = c(ex_scenarios, obs_scenario), 
-                     labels = c("low vax", "high vax", "realized"), 
+                     labels = c("low", "high", "realized"), 
                      limits = c(- 0.1, 1.1),
-                     name = "scenario axis") + 
+                     name = "vaccine uptake (scenario axis)") + 
   scale_y_continuous(limits = range(example_data$projections), 
-                     name = "cumulative hospitalizations\n(projection axis)") + 
+                     name = "final epidemic size\n(projection axis)") + 
   theme_classic(base_size = 7) +
   theme(legend.position = "none", 
         panel.grid = element_blank())
 plot_grid(p_base, labels = "A", label_size = 8)
-ggsave("output/figures/base_plot.pdf", width = 2.5, height = 2.5)
+ggsave("output/figures/base_plot.pdf", width = 2.75, height = 2.5)
 
