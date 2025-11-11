@@ -38,9 +38,9 @@ p_base <- ggplot(data = example_data) +
   geom_vline(xintercept = ex_scenarios, linewidth = 0.3) + 
   geom_vline(xintercept = obs_scenario, linetype = "dotted", linewidth = 0.3) + 
   geom_line(data = extra_data, aes(x = scenarios, y = projections, color = type), alpha = 0.3, linewidth = 0.5) +
-  geom_segment(data = example_data %>% filter(scenarios != 0.7) %>% dcast(scenarios ~ type, value.var = "projections"), 
+  geom_segment(data = example_data %>% filter(scenarios != obs_scenario) %>% dcast(scenarios ~ type, value.var = "projections"), 
                aes(x = scenarios, xend = scenarios, y = model, yend = observation), linewidth = 1.25, color = "#83caff") + 
-  geom_segment(data = example_data %>% filter(scenarios == 0.7) %>% dcast(scenarios ~ type, value.var = "projections"), 
+  geom_segment(data = example_data %>% filter(scenarios == obs_scenario) %>% dcast(scenarios ~ type, value.var = "projections"), 
                aes(x = scenarios, xend = scenarios, y = model, yend = observation), linewidth = 1.25, color = "#579d1c") + 
   geom_point(aes(x = scenarios, y = projections, color = type, 
                  fill = interaction(type,observable)), shape = 21, size = 2) +
