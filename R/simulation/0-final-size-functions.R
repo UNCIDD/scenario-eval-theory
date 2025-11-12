@@ -101,6 +101,7 @@ full_sim <- function(
                                     model_bias_R0_mean, model_bias_R0_sd, 
                                     model_bias_ind_sd, final_size_method, 
                                     alpha_upr, alpha_lwr, alpha_sd)
+  browser()
   model_sims = sims %>% filter(model_id != "T") %>%
     dplyr::select(-location_R0)
   true_sims = sims %>% filter(model_id == "T") %>%

@@ -3,6 +3,7 @@ library(finalsize)
 library(dplyr)
 library(reshape2)
 library(ggplot2)
+library(deSolve)
 
 source("./R/simulation/0-final-size-functions.R")
 source("./R/simulation/0-parameters.R")
