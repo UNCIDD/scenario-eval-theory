@@ -82,8 +82,8 @@ ggplot(data = true_final_sizes %>% filter(location_id == 1), aes(x = S1, y = S2)
   geom_text(aes(x = model_point[1], y = model_point[2], label = "model\n"), color = model_col, vjust = 0.2, size = text_size) +
   geom_text(aes(x = prior_point[1], y = prior_point[2], label = "prior\n"), color = prior_col, vjust = 0.2, size = text_size) +
   # now add decision lines
-  geom_abline(intercept = -0.32, linetype = "dashed") +
-  geom_abline(intercept = -0.4, linetype = "dotted") +
+  geom_abline(intercept = -0.3, linetype = "dashed") +
+  geom_abline(intercept = -0.74, slope = 1.8, linetype = "dotted") +
   scale_x_continuous(name = "projected value (action 1)") + 
   scale_y_continuous(name = "projected value (action 2)") + 
   theme_bw(base_size = 7) + 
