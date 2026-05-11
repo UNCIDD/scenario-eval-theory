@@ -15,6 +15,7 @@
 #'                         if NA, assumed to be the same as vax_cov_S1
 #' @param true_vax_cov_upr double, upper bound on true vaccination coverage values
 #'                         if NA, assumed to be the same as vax_cov_S2
+#' @param lengthout_scenarios number of scenario values to return results for (minimum = 2, for S1 and S2)
 #' @param R0_lwr double, lower bound on uniform distribution from which location-specific R0 is drawn
 #' @param R0_upr double, upper bound on uniform distribution from which location-specific R0 is drawn
 #' @param cov_R0 SOMETHING ABOUT CORRELATIONS IN OBSERVATIONS
@@ -89,7 +90,8 @@
 #' model/location/scenario (errors)
 full_sim <- function(
     n_locations, n_models, seed = 100, vax_cov_S1 = 0.3, vax_cov_S2 = 0.5, 
-    true_vax_cov_lwr = NA, true_vax_cov_upr = NA, R0_lwr = 2, R0_upr = 3.5, 
+    true_vax_cov_lwr = NA, true_vax_cov_upr = NA, lengthout_scenarios = 20,
+    R0_lwr = 2, R0_upr = 3.5, 
     cov_R0 = NA, model_bias_R0_mean = 0, model_bias_R0_sd = 0.05, 
     model_bias_ind_sd = 0, final_size_method = "analytical", 
     alpha_upr = 1, alpha_lwr = 0.95, alpha_sd = 0.01){
@@ -97,7 +99,8 @@ full_sim <- function(
   if(is.na(true_vax_cov_upr)){true_vax_cov_upr = vax_cov_S2}
   sims <- generate_final_size_preds(n_locations, n_models, seed, 
                                     true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
-                                    vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
+                                    vax_cov_S1, vax_cov_S2, lengthout_scenarios, 
+                                    R0_lwr, R0_upr, 
                                     model_bias_R0_mean, model_bias_R0_sd, 
                                     model_bias_ind_sd, final_size_method, 
                                     alpha_upr, alpha_lwr, alpha_sd)
@@ -115,7 +118,8 @@ full_sim <- function(
 #' function to simulate final size predictions from each model and the truth
 generate_final_size_preds <- function(n_locations, n_models, seed, 
                                       true_vax_cov_lwr, true_vax_cov_upr, cov_R0,
-                                      vax_cov_S1, vax_cov_S2, R0_lwr, R0_upr, 
+                                      vax_cov_S1, vax_cov_S2, lengthout_scenarios,
+                                      R0_lwr, R0_upr, 
                                       model_bias_R0_mean, model_bias_R0_sd, 
                                       model_bias_ind_sd, final_size_method, 
                                       alpha_upr, alpha_lwr, alpha_sd){
@@ -147,7 +151,7 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
   )
   # then combine into an R0 value for each model-location pair (if model_id == T, there is no bias)
   model_loc_R0 = expand.grid(model_id =  c(paste0("M", 1:n_models), "T"), 
-                            location_id = 1:n_locations) %>% 
+                             location_id = 1:n_locations) %>% 
     left_join(model_bias_R0) %>% 
     left_join(data.frame(location_id = 1:n_locations, 
                          location_R0 = R0_T)) %>% 
@@ -172,11 +176,14 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
   sims$vax_cov = with(sims, ifelse(scenario_id == "T", vax_cov_T[location_id], 
                                    ifelse(scenario_id == "S1", vax_cov_S1, vax_cov_S2)))
   # generate extra sims along scenario axis to see true relationship
-  sims_full_relationship <- expand.grid(model_id =  c(paste0("M", 1:n_models), "T"), 
-                                        location_id = 1:n_locations, 
-                                        vax_cov = seq(vax_cov_S1, vax_cov_S2, length.out = 20)) %>%
-    mutate(scenario_id = "E")
-  sims <- bind_rows(sims, sims_full_relationship) %>% 
+  if(lengthout_scenarios > 2){
+    sims_full_relationship <- expand.grid(model_id =  c(paste0("M", 1:n_models), "T"), 
+                                          location_id = 1:n_locations, 
+                                          vax_cov = seq(vax_cov_S1, vax_cov_S2, length.out = lengthout_scenarios)) %>%
+      mutate(scenario_id = "E")
+    sims <- bind_rows(sims, sims_full_relationship)
+  }
+  sims <- sims %>%
     # add model bias
     left_join(model_loc_R0[, c("model_id", "location_id", "location_R0", "R0", "alpha")])
   sims$final_size = NA
@@ -207,7 +214,7 @@ generate_final_size_preds <- function(n_locations, n_models, seed,
       inits = c(S = 1 - unname(unlist(sims$vax_cov[i])),
                 I = 1e-3,
                 R = unname(unlist(sims$vax_cov[i])) - 1e-3
-                )*params["N"]
+      )*params["N"]
       fs <- as.data.frame(ode(y = inits, times = seq(0, 1.5, 1/52), func = ode_sir, parms = params))
       sims$final_size[i] <- (inits["S"] - unname(unlist(fs %>% filter(time == max(time)) %>% pull(S))))/(inits["S"])
     }
