@@ -5,3 +5,4 @@
 .DS_Store
 scenario-eval-theory.Rproj
 *.rda
+output/simulation/estimated_errors_approach2_full_location_specific_sens.rds
