@@ -59,7 +59,10 @@ p1 = all_ests_w_rank %>%
   facet_grid(cols = vars(approach_general), rows = vars(scenario_id), 
              labeller = labeller(scenario_id = scenario_labs, approach_general = approach_general_labs), switch = "y") + 
   labs(x = "model", y = "distribution of errors across locations", color = "error estimation approach") +
-  scale_color_manual(values = c(RColorBrewer::brewer.pal(6, "Paired")[c(2, 4, 3, 6, 5)], "darkgray"), 
+  scale_color_manual(breaks=c("1", "truth", "2-covariates", "2-nocovariates", "3-covariates", "3-nocovariates"), 
+                     values = c(RColorBrewer::brewer.pal(6, "Paired")[2],
+                                "darkgray",
+                                RColorBrewer::brewer.pal(6, "Paired")[c(4, 3, 6, 5)]), 
                      labels = approach_labs) +
   scale_x_continuous(breaks = 1:n_models, 
                      labels = levels(all_ests_w_rank %>% mutate(model_id_ranked = reorder(model_id, true_rank)) %>% pull(model_id_ranked))) + 
@@ -110,14 +113,70 @@ p4 = ggplot(data = method_comparsion_results, aes(x = reorder(model_id, true_ran
         strip.placement = "outside")
 p4 
 
+#### PANEL C: RESULTS ACROSS MANY SIMULATIONS ----------------------------------
+method_comparsion_results_all = readRDS("output/simulation/performance_evaluation_results_across_locations_sens.rds") %>% 
+  mutate(approach = factor(approach, levels = names(approach_labs)[c(1,2,4,3,6,5)]))
+
+approach_labs_wrap = c("truth", "approach 1", 
+                       "approach 2\n(no covariates)", "approach 2\n(covariates)", 
+                       "approach 3\n(no covariates)", "approach 3\n(covariates)")
+names(approach_labs_wrap) = names(approach_labs)
+
+p5 = ggplot(data = method_comparsion_results_all, aes(x = approach, y = mae, color = approach)) +
+  geom_violin() +
+  # geom_point(size = 1.5, alpha = 0.4) +
+  facet_grid(rows = vars(scenario_id),
+             labeller = labeller(scenario_id = scenario_labs), switch = "y") +
+  labs(y = "absolute difference between means") +
+  scale_x_discrete(labels = approach_labs_wrap) +
+  scale_color_manual(values = c(RColorBrewer::brewer.pal(6, "Paired")[c(2, 4, 3, 6, 5)], "darkgray")) +
+  theme_bw(base_size = 7) +
+  theme(axis.title.x = element_blank(), 
+        legend.position = "none",
+        panel.grid = element_blank(),
+        strip.background = element_blank(),
+        strip.placement = "outside")
+p5
+
+# 5% p value level
+ks_sig = method_comparsion_results_all %>%
+  dplyr::select(n_df, n_truth) %>%
+  unique() %>%
+  mutate(ks_sig = 1.358*sqrt((n_df + n_truth)/(n_df*n_truth)))
+
+sig_flag = method_comparsion_results_all %>%
+  mutate(ks_sig_flag = ks_test_stat < ks_sig$ks_sig) %>% 
+  summarize(pct_sig = sum(ks_sig_flag)/n(), .by = c("approach", "scenario_id")) %>% 
+  mutate(pct_sig_lab = paste0("\n", round(pct_sig*100), "%"), 
+         sig_cutoff = ks_sig$ks_sig)
+
+p6 = ggplot(data = method_comparsion_results_all, aes(x = approach, y = ks_test_stat, color = approach)) + 
+  geom_hline(yintercept = ks_sig$ks_sig, linewidth = 0.3) +
+  geom_violin() +
+  geom_text(data = sig_flag, aes(y = sig_cutoff, label = pct_sig_lab), vjust = 0.4, size = 1.5) + 
+  # geom_point(size = 1.5, alpha = 0.4) + 
+  facet_grid(rows = vars(scenario_id),
+             labeller = labeller(scenario_id = scenario_labs), switch = "y") + 
+  labs(y = "Kolmogorov-Smirnov test statistic") +
+  scale_x_discrete(labels = approach_labs_wrap) +
+  scale_color_manual(values = c(RColorBrewer::brewer.pal(6, "Paired")[c(2, 4, 3, 6, 5)])) +
+  theme_bw(base_size = 7) + 
+  theme(axis.title.x = element_blank(), 
+        legend.position = "none", 
+        panel.grid = element_blank(),
+        strip.background = element_blank(), 
+        strip.placement = "outside")
+p6
+
 #### COMBINE INTO SINGLE PANEL -------------------------------------------------
 cowplot::plot_grid(
   p1, 
-  cowplot::plot_grid(p3, p4, nrow = 1), 
-  ncol = 1, rel_heights = c(0.6, 0.40), labels = c("A", "B"), label_size = 10
+  cowplot::plot_grid(p3, p4, nrow = 1),
+  cowplot::plot_grid(p5, p6, nrow = 1), 
+  ncol = 1, rel_heights = c(0.6, 0.40, 0.4), labels = c("A", "B", "C"), label_size = 10
 )
 
-ggsave("output/figures/method_comparison.pdf", width = 7, height = 6)
+ggsave("output/figures/method_comparison.pdf", width = 7, height = 8)
 
 
 

@@ -25,6 +25,7 @@ method_comparsion_results = expand.grid(model_id = paste0("M", 1:n_models),
                                         n_df = NA, n_truth = NA,
                                         ks_test_stat = NA, ks_test_p = NA, mae = NA)
 for(i in 1:nrow(method_comparsion_results)){
+  # print(i)
   if(i %%100 == 0){print(paste0(i, "/", nrow(method_comparsion_results)))}
   tmp_scenario_id = method_comparsion_results[i, "scenario_id"]
   tmp_model_id = method_comparsion_results[i, "model_id"]
@@ -42,7 +43,7 @@ for(i in 1:nrow(method_comparsion_results)){
             draw_id = 1:1e4, .by = c("vax_cov", "model_id")
     )
   # get true error
-  tmp_truth = true_errors %>% filter(scenario_id == tmp_scenario_id, model_id == tmp_model_id, rep_id == tmp_rep)
+  tmp_truth = true_errors %>% filter(scenario_id == as.character(tmp_scenario_id), model_id == tmp_model_id, rep_id == tmp_rep)
   # perform KS test
   tmp_ks = ks.test(tmp_df$est_error, tmp_truth$error)
   # save output
@@ -58,27 +59,29 @@ saveRDS(method_comparsion_results, "output/simulation/performance_evaluation_res
 
 
 #### EVALUATE PERFORMANCE OF DISTRIBUTION FOR EACH LOCATION --------------------
-method_comparsion_results = expand.grid(model_id = paste0("M", 1:n_models), 
-                                        scenario_id = c("S1", "S2"), 
+set.seed(0)
+method_comparsion_results = expand.grid(model_id = paste0("M", 1:n_models),
+                                        scenario_id = c("S1", "S2"),
                                         location_id = 1:n_loc,
                                         rep_id = 1:n_reps,
-                                        approach = names(approach_labs[c(2, 4, 6)]), 
+                                        approach = names(approach_labs[c(2, 4, 6)]),
                                         n_df = NA, n_truth = NA,
                                         ks_test_stat = NA, ks_test_p = NA, mae = NA)
 for(i in 1:nrow(method_comparsion_results)){
   if(i %%100 == 0){print(paste0(i, "/", nrow(method_comparsion_results)))}
+  browser()
   tmp_scenario_id = method_comparsion_results[i, "scenario_id"]
   tmp_model_id = method_comparsion_results[i, "model_id"]
   tmp_method = method_comparsion_results[i, "approach"]
   tmp_location_id = method_comparsion_results[i, "location_id"]
   tmp_rep = method_comparsion_results[i, "rep_id"]
   # get true error
-  tmp_truth = true_errors %>% 
-    filter(scenario_id == tmp_scenario_id, model_id == tmp_model_id, 
+  tmp_truth = true_errors %>%
+    filter(scenario_id == as.character(tmp_scenario_id), model_id == tmp_model_id,
            location_id == tmp_location_id, rep_id == tmp_rep)
   # pull error distribution of interest
-  tmp_df = all_ests_all_locs %>% 
-    filter(scenario_id == tmp_scenario_id, model_id == tmp_model_id, 
+  tmp_df = all_ests_all_locs %>%
+    filter(scenario_id == tmp_scenario_id, model_id == tmp_model_id,
            approach == tmp_method, location_id == tmp_location_id, rep_id == tmp_rep)
   if(nrow(tmp_df) == 0){next}
   if(nrow(tmp_df) == 1){method_comparsion_results[i, "mae"] = abs(tmp_df$value - tmp_truth$error);next}

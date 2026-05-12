@@ -107,6 +107,7 @@ approach2_cov_errors_across_locs = bind_rows(approach2_cov_errors_across_locs)
 # step 1: infer observations across locations
 approach3_obs_nocovariate = vector("list", n_reps)
 for(i in 1:n_reps){
+  if(i %%100 == 0){print(paste0(i, "/", n_reps))}
   gam_obs = gam(true_final_size ~ s(vax_cov), data = obs_df %>% filter(rep_id == i))
   approach3_obs_nocovariate[[i]] = get_gam_PIs(gam_obs, xvals = data.frame(vax_cov = new_vax_cov)) %>%
     mutate(scenario_id = ifelse(vax_cov == new_vax_cov[1], "S1", "S2"), 
@@ -118,21 +119,23 @@ approach3_obs_nocovariate = bind_rows(approach3_obs_nocovariate)
 #   mutate(quantile = paste0("Q", quantile*100)) %>%
 #   dcast(scenario_id + vax_cov ~ quantile)
 
-# step 2: calculate error
-n_samp = 1e4
-# first get samples from the distribution of observations
-approach3_samp_nocovariate = approach3_obs_nocovariate %>%
-  reframe(est_obs_samp = get_samps(quantile, value, n_samp),
-          draw_id = 1:n_samp, .by = c("vax_cov", "scenario_id", "rep_id")
-  )
 
+n_samp = 1e4
 # join samples with model projections for each scenario and calculate error
-approach3_nocov_errors_all_locs = vector("list", n_models)
-approach3_nocov_errors_across_locs = vector("list", n_models)
-for(i in 1:n_models){
-  approach3_nocov_errors = approach3_samp_nocovariate %>% 
-    filter(vax_cov %in% c(0.3, 0.5)) %>%
-    left_join(model_sims_df %>% filter(scenario_id %in% c("S1", "S2"), model_id == paste0("M", i)), 
+approach3_nocov_errors_all_locs = vector("list", nrow(full_grid))
+approach3_nocov_errors_across_locs = vector("list", nrow(full_grid))
+for(i in 1:nrow(full_grid)){
+  if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
+  tmp_rep = full_grid[i, "rep_id"]
+  tmp_model = full_grid[i, "model_id"]
+  # step 2: calculate error
+  approach3_nocov_errors =  approach3_obs_nocovariate %>%
+    filter(rep_id == tmp_rep) %>%
+    reframe(est_obs_samp = get_samps(quantile, value, n_samp),
+            draw_id = 1:n_samp, .by = c("vax_cov", "scenario_id", "rep_id")
+    ) %>% 
+    filter(vax_cov %in% c(0.3, 0.5), rep_id == tmp_rep) %>%
+    left_join(model_sims_df %>% filter(scenario_id %in% c("S1", "S2"), model_id == tmp_model), 
               relationship = "many-to-many", by = join_by(vax_cov, scenario_id, rep_id)) %>%
     mutate(est_error = final_size - est_obs_samp)
   approach3_nocov_errors_all_locs[[i]] = approach3_nocov_errors %>% 
@@ -169,32 +172,41 @@ approach3_obs_covariate = bind_rows(approach3_obs_covariate) %>%
   mutate(scenario_id = ifelse(vax_cov == new_vax_cov[1], "S1", "S2"))
 saveRDS(approach3_obs_covariate, "output/simulation/estimated_obs_approach3_sens.rds")
 
-# step 2: calculate error
-approach3_samp_covariate = approach3_obs_covariate %>%
-  reframe(est_obs_samp = get_samps(quantile, value, 1e4),
-          draw_id = 1:1e4, .by = c("vax_cov", "location_id", "rep_id")
-  )
 
-approach3_cov_errors_all_locs  = vector("list", n_models)
-approach3_cov_errors_across_locs = vector("list", n_models)
-for(i in 1:n_models){
-  approach3_cov_errors = approach3_samp_covariate %>% 
-    filter(vax_cov %in% c(0.3, 0.5)) %>%
+approach3_cov_errors_all_locs  = vector("list", nrow(full_grid))
+approach3_cov_errors_across_locs = vector("list", nrow(full_grid))
+for(i in 9792:nrow(full_grid)){
+  # if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
+  print(i)
+  tmp_rep = full_grid[i, "rep_id"]
+  tmp_model = full_grid[i, "model_id"]
+  # step 2: calculate error
+  approach3_cov_errors = approach3_obs_covariate %>%
+    filter(rep_id == tmp_rep, vax_cov %in% c(0.3, 0.5)) 
+  if(nrow(approach3_cov_errors) == 0){browser()}
+  approach3_cov_errors = approach3_cov_errors %>%
+    reframe(est_obs_samp = get_samps(quantile, value, 1e4),
+            draw_id = 1:1e4, .by = c("vax_cov", "location_id", "rep_id")
+    ) %>%
     mutate(scenario_id = ifelse(vax_cov == vax_scenarios[1], "S1", ifelse(vax_cov == vax_scenarios[2], "S2", NA))) %>%
-    left_join(model_sims_df %>% filter(scenario_id %in% c("S1", "S2"), model_id == paste0("M", i)),  
+    left_join(model_sims_df %>% filter(scenario_id %in% c("S1", "S2"), model_id == tmp_model, rep_id == tmp_rep),  
               relationship = "many-to-many", by = join_by(vax_cov, location_id, scenario_id, rep_id)) %>%
     mutate(est_error = final_size - est_obs_samp)
-  approach3_cov_errors_all_locs[[i]] = approach3_cov_errors %>% 
-    reframe(quantile = quantiles, 
+  approach3_cov_errors_all_locs[[i]] = approach3_cov_errors %>%
+    reframe(quantile = quantiles,
             value = quantile(est_error, quantiles),
             .by = c("vax_cov", "scenario_id", "model_id", "location_id", "rep_id"))
   approach3_cov_errors_across_locs[[i]] = approach3_cov_errors %>% 
     reframe(quantile = quantiles, 
             value = quantile(est_error, quantiles), 
             .by = c("vax_cov", "scenario_id", "model_id", "rep_id"))
+  rm(approach3_cov_errors)
 }
+beepr::beep()
+
 approach3_cov_errors_all_locs = bind_rows(approach3_cov_errors_all_locs)
 approach3_cov_errors_across_locs = bind_rows(approach3_cov_errors_across_locs)
+
 
 #### COMBINE OUTCOMES ----------------------------------------------------------
 # first estimates of error distribution across all locations
@@ -218,7 +230,8 @@ all_ests_across_locs = approach1_errors %>%
   ) %>%
   # add truth
   bind_rows(
-    error_df %>% 
+    bind_rows(lapply(sim_out, function(i){i$errors}), .id = "rep_id") %>%
+      mutate(rep_id = as.integer(rep_id)) %>% 
       reframe(quantile = quantiles, 
               value = quantile(error, quantiles), .by = c("vax_cov", "model_id", "scenario_id", "rep_id")) %>%
       mutate(approach = "truth") %>% filter(scenario_id %in% c("S1", "S2"))
@@ -241,7 +254,9 @@ all_ests_all_locs = approach1_errors %>%
   ) %>%
   # add truth
   bind_rows(
-    error_df %>% select(model_id, location_id, rep_id, scenario_id, vax_cov, error) %>%
+    bind_rows(lapply(sim_out, function(i){i$errors}), .id = "rep_id") %>%
+      mutate(rep_id = as.integer(rep_id)) %>% 
+      select(model_id, location_id, rep_id, scenario_id, vax_cov, error) %>%
       mutate(quantile = 0.5, approach = "truth") %>%
       rename(value = error)  %>% filter(scenario_id %in% c("S1", "S2"))
   )
