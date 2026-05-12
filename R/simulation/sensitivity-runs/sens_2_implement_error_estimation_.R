@@ -2,6 +2,7 @@ library(dplyr)
 library(reshape2)
 library(mgcv)
 library(ggplot2)
+library(doParallel)
 
 #### SETUP ---------------------------------------------------------------------
 source("R/simulation/sensitivity-runs/sens-0-parameters.R")
@@ -67,15 +68,16 @@ saveRDS(approach2_nocov_errors_across_locs, "output/simulation/estimated_errors_
 # (above)
 
 # step 2: fit errors in realized scenarios (with location cov)
-gam_errors_cov <- vector("list", n_models)
-approach2_obs_covariate <- vector("list", length(n_models))
-for(i in 1:n_models){
-  print(i)
-  gam_errors_cov[[i]] <- gam(error ~ s(vax_cov) + location_R0, data = error_df %>% filter(model_id == paste0("M", i)))
+gam_errors_cov <- vector("list", nrow(full_grid))
+approach2_obs_covariate <- vector("list", nrow(full_grid))
+for(i in 1:nrow(full_grid)){
+  if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
+  gam_errors_cov[[i]] <- gam(error ~ s(vax_cov) + location_R0, data = error_df %>% filter(model_id == full_grid[i, "model_id"], rep_id == full_grid[i, "rep_id"]))
   tmp <- vector("list", length(alphas))
-  for(j in 1:nrow(pred_mat_covar)){
-    tmp[[j]] =  get_gam_PIs(gam_errors_cov[[i]], xvals = pred_mat_covar[j, -2]) %>%
-      mutate(location_id = pred_mat_covar[j, "location_id"])
+  pred_mat_tmp = pred_mat_covar %>% filter(rep_id == i)
+  for(j in 1:nrow(pred_mat_tmp)){
+    tmp[[j]] =  get_gam_PIs(gam_errors_cov[[i]], xvals = pred_mat_tmp[j, -2]) %>%
+      mutate(location_id = pred_mat_tmp[j, "location_id"])
   }
   approach2_obs_covariate[[i]] = bind_rows(tmp) %>%
     mutate(model_id = paste0("M", i))
@@ -90,7 +92,7 @@ saveRDS(approach2_cov_errors_all_locs, "output/simulation/estimated_errors_appro
 # distribution of errors across locations
 approach2_cov_errors_across_locs = vector("list", nrow(full_grid))
 for(i in 1:nrow(full_grid)){
-  if(i %% 10 == 0){print(paste0(i, "/", nrow(full_grid)))}
+  if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
   approach2_cov_errors_across_locs[[i]] = approach2_cov_errors_all_locs %>%
     filter(model_id ==  full_grid[i, "model_id"], rep_id == full_grid[i, "rep_id"]) %>%
     reframe(est_error_samp = get_samps(quantile, value, 1e4),

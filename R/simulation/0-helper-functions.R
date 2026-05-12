@@ -29,7 +29,7 @@ get_gam_PIs <- function(mod, xvals, invfn2 = function(x){return(x)}){
     reframe(quantile = quantiles, 
             value = quantile(value_inv, quantiles), .by = c("xval_id")) %>% 
     left_join(data.frame(xval_id = 1:length(unlist(xvals)), 
-                         xval = xvals), by = join_by(xval_id)) %>% 
+                         xval = as.vector(xvals)), by = join_by(xval_id)) %>% 
     dplyr::select(-xval_id)
   return(ret)
 }
