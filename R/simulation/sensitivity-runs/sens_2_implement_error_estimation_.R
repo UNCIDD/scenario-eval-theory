@@ -68,20 +68,29 @@ saveRDS(approach2_nocov_errors_across_locs, "output/simulation/estimated_errors_
 # (above)
 
 # step 2: fit errors in realized scenarios (with location cov)
-gam_errors_cov <- vector("list", nrow(full_grid))
-approach2_obs_covariate <- vector("list", nrow(full_grid))
-for(i in 1:nrow(full_grid)){
-  if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
-  gam_errors_cov[[i]] <- gam(error ~ s(vax_cov) + location_R0, data = error_df %>% filter(model_id == full_grid[i, "model_id"], rep_id == full_grid[i, "rep_id"]))
+# set up parallelization
+num_cores <- 6
+cl <- parallel::makeCluster(num_cores)
+doParallel::registerDoParallel(cl)
+start_time = Sys.time()
+approach2_obs_covariate <- foreach(
+  i = 1:nrow(full_grid), 
+  .packages = c("mgcv", "dplyr")#, 
+  # .export = c("full_grid", "error_df", "alphas", "pred_mat_covar", "get_gam_PIs")
+) %dopar% {
+  gam_errors_cov <- gam(error ~ s(vax_cov) + location_R0, data = error_df %>% filter(model_id == full_grid[i, "model_id"], rep_id == full_grid[i, "rep_id"]))
   tmp <- vector("list", length(alphas))
-  pred_mat_tmp = pred_mat_covar %>% filter(rep_id == i)
+  pred_mat_tmp = pred_mat_covar %>% filter(rep_id == full_grid[i, "rep_id"])
   for(j in 1:nrow(pred_mat_tmp)){
-    tmp[[j]] =  get_gam_PIs(gam_errors_cov[[i]], xvals = pred_mat_tmp[j, -2]) %>%
+    tmp[[j]] =  get_gam_PIs(gam_errors_cov, xvals = pred_mat_tmp[j, -2]) %>%
       mutate(location_id = pred_mat_tmp[j, "location_id"])
   }
-  approach2_obs_covariate[[i]] = bind_rows(tmp) %>%
-    mutate(model_id = paste0("M", i))
+  bind_rows(tmp) %>%
+    mutate(model_id = full_grid[i, "model_id"])
 }
+parallel::stopCluster(cl)
+Sys.time() - start_time
+
 
  # estimated errors for each location
 approach2_cov_errors_all_locs = bind_rows(approach2_obs_covariate) %>%
@@ -90,9 +99,11 @@ approach2_cov_errors_all_locs = bind_rows(approach2_obs_covariate) %>%
 saveRDS(approach2_cov_errors_all_locs, "output/simulation/estimated_errors_approach2_full_location_specific_sens.rds")
 
 # distribution of errors across locations
+start_time = Sys.time()
 approach2_cov_errors_across_locs = vector("list", nrow(full_grid))
 for(i in 1:nrow(full_grid)){
-  if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
+  # if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
+  print(i)
   approach2_cov_errors_across_locs[[i]] = approach2_cov_errors_all_locs %>%
     filter(model_id ==  full_grid[i, "model_id"], rep_id == full_grid[i, "rep_id"]) %>%
     reframe(est_error_samp = get_samps(quantile, value, 1e4),
@@ -102,6 +113,7 @@ for(i in 1:nrow(full_grid)){
             value = quantile(est_error_samp, quantiles), .by = c("vax_cov", "model_id", "rep_id")) %>%
     mutate(scenario_id = ifelse(vax_cov == vax_scenarios[1], "S1", ifelse(vax_cov == vax_scenarios[2], "S2", "E")))
 }
+Sys.time() - start_time
 
 approach2_cov_errors_across_locs = bind_rows(approach2_cov_errors_across_locs)
 
@@ -177,9 +189,9 @@ saveRDS(approach3_obs_covariate, "output/simulation/estimated_obs_approach3_sens
 
 approach3_cov_errors_all_locs  = vector("list", nrow(full_grid))
 approach3_cov_errors_across_locs = vector("list", nrow(full_grid))
-for(i in 9792:nrow(full_grid)){
-  # if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
-  print(i)
+for(i in 1:nrow(full_grid)){
+  if(i %% 100 == 0){print(paste0(i, "/", nrow(full_grid)))}
+  # print(i)
   tmp_rep = full_grid[i, "rep_id"]
   tmp_model = full_grid[i, "model_id"]
   # step 2: calculate error
@@ -204,7 +216,6 @@ for(i in 9792:nrow(full_grid)){
             .by = c("vax_cov", "scenario_id", "model_id", "rep_id"))
   rm(approach3_cov_errors)
 }
-beepr::beep()
 
 approach3_cov_errors_all_locs = bind_rows(approach3_cov_errors_all_locs)
 approach3_cov_errors_across_locs = bind_rows(approach3_cov_errors_across_locs)
