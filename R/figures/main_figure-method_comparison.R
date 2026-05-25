@@ -1,5 +1,6 @@
 library(ggplot2)
 library(dplyr)
+library(reshape2)
 
 #### SETUP ---------------------------------------------------------------------
 source("R/simulation/0-parameters.R")
@@ -166,7 +167,7 @@ p6 = ggplot(data = method_comparsion_results_all, aes(x = approach, y = ks_test_
         panel.grid = element_blank(),
         strip.background = element_blank(), 
         strip.placement = "outside")
-p6
+p6 
 
 #### COMBINE INTO SINGLE PANEL -------------------------------------------------
 cowplot::plot_grid(
