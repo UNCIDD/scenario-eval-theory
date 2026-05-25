@@ -25,7 +25,6 @@ method_comparsion_results = expand.grid(model_id = paste0("M", 1:n_models),
                                         n_df = NA, n_truth = NA,
                                         ks_test_stat = NA, ks_test_p = NA, mae = NA)
 for(i in 1:nrow(method_comparsion_results)){
-  # print(i)
   if(i %%100 == 0){print(paste0(i, "/", nrow(method_comparsion_results)))}
   tmp_scenario_id = method_comparsion_results[i, "scenario_id"]
   tmp_model_id = method_comparsion_results[i, "model_id"]
@@ -60,16 +59,18 @@ saveRDS(method_comparsion_results, "output/simulation/performance_evaluation_res
 
 #### EVALUATE PERFORMANCE OF DISTRIBUTION FOR EACH LOCATION --------------------
 set.seed(0)
+sel_rep_id = sample(1:n_reps, 100) # filter to a random selection of 100 rep_ids
 method_comparsion_results = expand.grid(model_id = paste0("M", 1:n_models),
                                         scenario_id = c("S1", "S2"),
                                         location_id = 1:n_loc,
-                                        rep_id = 1:n_reps,
-                                        approach = names(approach_labs[c(2, 4, 6)]),
+                                        rep_id = sel_rep_id,
+                                        approach = names(approach_labs[c(4, 6)]),
                                         n_df = NA, n_truth = NA,
-                                        ks_test_stat = NA, ks_test_p = NA, mae = NA)
+                                        ks_test_stat = NA, ks_test_p = NA, mae = NA) 
+all_ests_all_locs_sub = all_ests_all_locs %>% 
+  filter(rep_id %in% sel_rep_id)
 for(i in 1:nrow(method_comparsion_results)){
   if(i %%100 == 0){print(paste0(i, "/", nrow(method_comparsion_results)))}
-  browser()
   tmp_scenario_id = method_comparsion_results[i, "scenario_id"]
   tmp_model_id = method_comparsion_results[i, "model_id"]
   tmp_method = method_comparsion_results[i, "approach"]
@@ -80,7 +81,7 @@ for(i in 1:nrow(method_comparsion_results)){
     filter(scenario_id == as.character(tmp_scenario_id), model_id == tmp_model_id,
            location_id == tmp_location_id, rep_id == tmp_rep)
   # pull error distribution of interest
-  tmp_df = all_ests_all_locs %>%
+  tmp_df = all_ests_all_locs_sub %>%
     filter(scenario_id == tmp_scenario_id, model_id == tmp_model_id,
            approach == tmp_method, location_id == tmp_location_id, rep_id == tmp_rep)
   if(nrow(tmp_df) == 0){next}
