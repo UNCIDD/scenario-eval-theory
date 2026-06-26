@@ -6,10 +6,9 @@ library(ggforce)
 library(tidyr)
 library(cowplot)
 
-sim_out = readRDS("output/simulation/sim_out.rds")
+#### 1: UTILITY FUNCTIONS ------------------------------------------------------
 
-source("R/simulation/0-parameters.R")
-source("R/simulation/0-helper-functions.R")
+samp_size = 500
 
 linear_utility = function(y, j, c){
   return(y*j + c) 
@@ -19,134 +18,105 @@ quadratic_utility = function(y, k, c){
   return(k*y^2 + c)
 }
 
-j_val = c(5.5,6)*1e3 #(population in millions)
-k_val = c(4.5,5)*1e3 #(population in millions)
-c_val = c(2, 4)*1e3
+logarithmic_utility = function(y, l, r, y0, c){
+  return(l/(1+exp(-r*(y+y0))) + c)
+}
 
-prior_col = "lightblue3"
-model_col = "blueviolet"
+j_val = rep(3.5*1e3,2) #(population in thousands)
+k_val = rep(5*1e3,2) #(population in thousands)
+l_val = rep(2.25e3,2)
+r_val = rep(10,2)
+y0_val = rep(-0.5,2)
+# S1 = more aggressive (and more expensive) action than S2; action cost differs by 500
+c_val = c(2.5*1e3, 2*1e3)
 
-samp_size = 500
+utility_fns = expand.grid(y = seq(0, 1, length.out = 100), scenario_id = c("S1", "S2")) %>%
+  mutate(scenario_int = as.integer(substr(scenario_id,2,2))) %>%
+  mutate(linear = linear_utility(y, j_val[scenario_int], c_val[scenario_int]), 
+         quadratic = quadratic_utility(y, k_val[scenario_int], c_val[scenario_int]), 
+         logarithmic = logarithmic_utility(y, l_val[scenario_int], r_val[scenario_int], 
+                                           y0_val[scenario_int], c_val[scenario_int])) %>%
+  dplyr::select(-scenario_int) %>%
+  melt(c("y", "scenario_id"), variable.name = "utility_fn", value.name = "utility")
 
-true_utilities = sim_out$true_sims %>%
-  filter(scenario_id %in% c("S1", "S2")) %>%
-  mutate(utility = linear_utility(true_final_size, k_val, c_val)) %>%
-  dcast(location_id ~ scenario_id, value.var = "utility")
+# plot 1: utility functions
+p1 = ggplot(utility_fns, aes(x = y, y = utility, color = utility_fn, linetype = scenario_id)) + 
+  geom_line() +
+  theme_classic() + 
+  theme()
+p1
 
-true_final_sizes = sim_out$true_sims %>%
-  filter(scenario_id %in% c("S1", "S2")) %>%
-  dcast(location_id ~ scenario_id, value.var = "true_final_size")
- 
-# add some artificial uncertainty (for now) to the projections
-set.seed(1928)
-model_scenario_sd = expand.grid(
-  model_id = paste0("M", 1:10) 
-  # scenario_id = c("S1", "S2")
-) %>%
-  mutate(projection_sd = runif(n(), 0, 0.0025))
+#### 2: PROJECTIONS ------------------------------------------------------------
+## Projections chosen so that:
+##   M1 (pessimistic about S2) — all three utilities prefer S1
+##   M2 (optimistic about S2)  — all three utilities prefer S2
+##   T  (truth, in between)    — linear prefers S1 but quadratic and sigmoid prefer S2
+## i.e. different MODELS lead to different decisions (M1 vs M2), and
+##      different UTILITY FUNCTIONS lead to different decisions (under T).
+projected_values = expand_grid(model_id = c("M1", "M2", "T"),
+                               scenario_id = c("S1", "S2")) %>%
+  mutate(mu = c(0.13, 0.48,   # M1: S1, S2
+                0.15, 0.22,   # M2: S1, S2
+                0.14, 0.34),  # T:  S1, S2
+         sigma = c(0.001, 0.001, 0.0015, 0.0015, 0.0005, 0.0005)) %>%
+  reframe(final_size_samp = as.vector(mvrnorm(samp_size, mu, sigma)), 
+          draw_id = 1:samp_size, .by = c("scenario_id", "model_id")) 
 
-chosen_location = 1
+projected_values_wide = projected_values %>%
+  dcast(model_id + draw_id ~ scenario_id, value.var = "final_size_samp")
 
-sim_out$model_sims %>%
-  filter(scenario_id %in% c("S1", "S2"), location_id == chosen_location) %>%
-  left_join(model_scenario_sd) %>%
-  reframe(final_size_samp = mvrnorm(samp_size, final_size, projection_sd), 
-          draw_id = 1:samp_size, .by = c("scenario_id", "location_id", "model_id")) %>%
-  dcast(location_id + model_id + draw_id ~ scenario_id, value.var = "final_size_samp") %>% 
-  ggplot(aes(x = S1, y = S2)) + 
+ggplot(projected_values_wide, aes(x = S1, y = S2, color = model_id)) + 
   geom_point() + 
-  stat_ellipse() + 
-  facet_wrap(vars(model_id))
+  # scale_x_continuous(limits = c(0,1)) +
+  # scale_y_continuous(limits = c(0,1)) + 
+  theme_bw()
 
-chosen_models = c("M5", "M10")
 
-model_sims = sim_out$model_sims %>%
-  filter(scenario_id %in% c("S1", "S2"), location_id == chosen_location, model_id %in% chosen_models) %>%
-  left_join(model_scenario_sd) %>%
-  reframe(final_size_samp = mvrnorm(samp_size, final_size, projection_sd), 
-          draw_id = 1:samp_size, .by = c("scenario_id", "location_id", "model_id"))
+#### 3: UTILITIES --------------------------------------------------------------
+utilities = projected_values %>% 
+  mutate(scenario_int = as.integer(substr(scenario_id,2,2))) %>%
+  mutate(linear = as.vector(linear_utility(final_size_samp, j_val[scenario_int], c_val[scenario_int])), 
+         quadratic = as.vector(quadratic_utility(final_size_samp, k_val[scenario_int], c_val[scenario_int])), 
+         logarithmic = as.vector(logarithmic_utility(final_size_samp, l_val[scenario_int], r_val[scenario_int], y0_val[scenario_int], c_val[scenario_int]))
+  ) %>%
+  dplyr::select(-scenario_int) %>%
+  melt(c("scenario_id", "model_id", "draw_id", "final_size_samp"), variable.name = "utility_fn", value.name = "utility") 
 
-projected_utilities = model_sims %>%
-  mutate(utility = linear_utility(final_size_samp, 
-                                  ifelse(scenario_id == "S1", j_val[1], j_val[2]), 
-                                  ifelse(scenario_id == "S1", c_val[1], c_val[2]))) %>%
-  dcast(location_id + model_id + draw_id ~ scenario_id, value.var = "utility")
+utilities_wide = utilities %>%
+  dcast(model_id + draw_id + utility_fn ~ scenario_id, value.var = "utility")
 
-projected_utilities_quadratic = model_sims %>%
-  mutate(utility = quadratic_utility(final_size_samp, 
-                                  ifelse(scenario_id == "S1", k_val[1], k_val[2]), 
-                                  ifelse(scenario_id == "S1", c_val[1], c_val[2]))) %>%
-  dcast(location_id + model_id + draw_id ~ scenario_id, value.var = "utility")
 
-projected_final_sizes = model_sims %>%
-  dcast(location_id + model_id + draw_id ~ scenario_id, value.var = "final_size_samp")
+p2 = ggplot(utilities_wide, aes(x = S1, y = S2, color = utility_fn, fill = utility_fn)) + 
+  # geom_point() + 
+  stat_ellipse(geom = "polygon", alpha = 0.3) +
+  geom_abline() +
+  facet_wrap(vars(model_id)) +
+  theme_bw()
 
-l_lin = range(projected_utilities %>% filter(location_id == 1, model_id %in% c("M5", "M10")) %>% dplyr::select(S1, S2))
-l_quad = range(projected_utilities_quadratic %>% filter(location_id == 1, model_id %in% c("M5", "M10")) %>% dplyr::select(S1, S2))
-l_util = range(c(l_lin, l_quad))
-l_out = range(projected_final_sizes %>% filter(location_id == 1, model_id %in% c("M5", "M10")) %>% dplyr::select(S1, S2))
-decision_lines = data.frame(y2 = seq(0, 0.25, length.out = 100))
+#### 4: DECISION LINES IN PROJECTION SPACE -------------------------------------
+get_decision_line_log = function(y2, y1, r_val, l_val, y0_val, c_val){
+  logarithmic_utility(y2, l = l_val[2], r = r_val[2], y0 = y0_val[2], c = c_val[2]) - 
+    logarithmic_utility(y1, l = l_val[1], r = r_val[1], y0 = y0_val[1], c = c_val[1])
+}
+
+decision_lines = data.frame(y1 = seq(0.001, 0.5, length.out = 100))
 decision_lines = decision_lines %>% 
-  mutate(linear = 1/j_val[1] * (j_val[2] * y2 + c_val[2] - c_val[1]), 
-         quadratic = sqrt(1/k_val[1] * (k_val[2] * y2 + c_val[2] - c_val[1]))) %>% 
-  melt(c("y2"), variable.name = "utility_fn", value.name = "y1")
+  mutate(linear = 1/j_val[1] * (j_val[2] * y1 + c_val[2] - c_val[1]), 
+         quadratic = sqrt(1/k_val[1] * (k_val[2] * y1^2 + c_val[2] - c_val[1]))) %>%
+  mutate(logarithmic =uniroot(get_decision_line_log, interval = c(-1e6,1e6),
+                              y1 = y1, r_val, l_val, y0_val, c_val)$root, .by = c ("y1")) %>%
+  melt(c("y1"), variable.name = "utility_fn", value.name = "y2")
 
-p1 = ggplot(data = projected_utilities, #
-       aes(x = S1, y = S2, fill = as.factor(model_id))) +
-  # geom_point(size = 2, alpha = 0.2) + 
+p3 = ggplot(projected_values_wide, aes(x = S1, y = S2)) + 
+  # geom_point() + 
   stat_ellipse(geom = "polygon", alpha = 0.3) +
-  geom_abline() + 
-  geom_point(data = projected_utilities %>% summarize(S1 = mean(S1), S2 = mean(S2), .by = c("model_id")), 
-             aes(color = model_id), size = 0.8) + 
-  labs(subtitle = "linear utility") +
-  scale_color_manual(values = c(prior_col, model_col)) + 
-  scale_fill_manual(values = c(prior_col, model_col)) + 
-  scale_x_continuous(limits = l_util, name = "utility of action 1") +
-  scale_y_continuous(limits = l_util, name = "utility of action 2") +
-  theme_bw(base_size = 7) + 
-  theme(legend.position = "none",
-        panel.grid = element_blank())
-p2 = ggplot(data = projected_utilities_quadratic, 
-            aes(x = S1, y = S2, fill = as.factor(model_id))) +
-  geom_abline(linetype = "dashed") + 
-  geom_point(data = projected_utilities_quadratic %>% 
-               summarize(S1 = mean(S1), S2 = mean(S2), .by = c("model_id")), 
-             aes(color = model_id), size = 0.8) + 
-  stat_ellipse(geom = "polygon", alpha = 0.3) +
-  labs(subtitle = "quadratic utility") + 
-  scale_color_manual(values = c(prior_col, model_col)) +
-  scale_fill_manual(values = c(prior_col, model_col)) + 
-  scale_x_continuous(expand = c(0,0), limits = l_util, name = "utility of action 1") +
-  scale_y_continuous(expand = c(0,0), limits = l_util, name = "utility of action 2") +
-  theme_bw(base_size = 7) + 
-  theme(legend.position = "none",
-        panel.grid = element_blank())
-p3 = ggplot(data = projected_final_sizes,
-       aes(x = S1, y = S2)) +
-  # geom_point(size = 2, alpha = 0.2) + 
-  stat_ellipse(aes(fill = as.factor(model_id)), geom = "polygon", alpha = 0.3) +
-  geom_point(data = projected_final_sizes %>% 
-               summarize(S1 = mean(S1), S2 = mean(S2), .by = c("model_id")), 
-             aes(color = model_id), size = 0.8) + 
-  geom_point(data = true_final_sizes %>% filter(location_id == 1), color = "black", alpha = 0.3, size = 8, stroke = NA) +
-  geom_point(data = true_final_sizes %>% filter(location_id == 1), color = "black", size = 0.8) +
-  geom_line(data = decision_lines, aes(x = y1, y = y2, linetype = utility_fn), color = "black") + 
-  guides(color = FALSE) +
-  scale_color_manual(values = c(prior_col, model_col), labels = c("prior", "model")) + 
-  scale_fill_manual(values = c(prior_col, model_col), labels = c("prior", "model")) + 
-  scale_linetype_discrete(labels = paste0(c("linear", "quadratic"), " utility")) + 
-  scale_x_continuous(expand = c(0,0), name = "projected outcome of action 1") +
-  scale_y_continuous(expand = c(0,0), name = "projected outcome of action 2") +
-  theme_bw(base_size = 7) + 
-  theme(legend.title = element_blank(), 
-        legend.position = "bottom",
-        panel.grid = element_blank())
-l = cowplot::get_legend(p3)
-plot_grid(
-  plot_grid(plot_grid(p1, p2, ncol = 1), p3 + theme(legend.position = "noen"), 
-            rel_widths = c(0.4, 0.6), align = "v", axis = "tb"), 
-  l, rel_heights = c(0.9, 0.1), ncol = 1
-)
+  geom_line(data = decision_lines, aes(x = y1, y = y2, color = utility_fn)) +
+  facet_wrap(vars(model_id)) +
+  # scale_x_continuous(limits = c(0,1)) +
+  # scale_y_continuous(limits = c(0,1)) + 
+  theme_bw()
+
+plot_grid(p1, p2, p3, ncol = 1)
 
 ggsave("R/decision-theory/figures/projection_space.pdf", width = 6, heigh = 4)  
 

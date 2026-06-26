@@ -1,0 +1,48 @@
+\documentclass[12pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\renewcommand{\thefigure}{S\arabic{figure}}
+
+\title{Decision lines algrebraic derivations}
+\author{}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+
+In each case, we will assume some utility function $u(y|a_i)$ and we will find the decision line that separates the regions of the action space where one action is preferred over another. The decision line is defined by the set of points in the outcome space where the expected utility of two actions are equal, i.e., $ u(y|a_1) = u(y|a_2) $.
+
+\section{Linear decision lines}
+We start with the simplest utility function, which is linear in the outcome $y$. Let $u(y|a_i) = \alpha_i y + \beta_i$, where $\alpha_i$ and $\beta_i$ are constants that depend on the action $a_i$. Then, the decision line between actions $a_1$ and $a_2$ is given by:
+\begin{align*}
+\alpha_1 y_2 + \beta_1 &= \alpha_2 y_1 + \beta_2 \\
+y_2 &= \frac{\alpha_2}{\alpha_1} y_1 + \frac{\beta_2 - \beta_1}{\alpha_1}
+\end{align*}
+This is a linear equation in outcome space, where the relative per-unit costs determine the slope and the difference in fixed costs (relative to per unit cost) determines the intercept. 
+
+\section{Quadratic decision lines}
+Next, we consider a quadratic utility function of the form $u(y|a_i) = \alpha_i y^2 + \beta_i$, where $\alpha_i$ and $\beta_i$ are again constants that depend on the action $a_i$. The decision line between actions $a_1$ and $a_2$ is given by: 
+\begin{align*}
+\alpha_1 y_2^2 + \beta_1 &= \alpha_2 y_1^2 + \beta_2 \\
+y_2^2 &= \frac{\alpha_2}{\alpha_1} y_1^2 + \frac{\beta_2 - \beta_1}{\alpha_1} \\
+y_2 &= \sqrt{\frac{\alpha_2}{\alpha_1} y_1^2 + \frac{\beta_2 - \beta_1}{\alpha_1}}
+\end{align*}
+Here we've assumed that outcomes must be positive. 
+
+\section{Logarithmic decision lines}
+Finally, we consider a logarithmic utility function of the form $u(y|a_i) = \frac{\alpha_i}{(1+\text{exp}(-r_i(y+y_0)))} + \beta_i$, where $\alpha_i$, $\beta_i$, $r_i$, and $y_0$ are constants that depend on the action $a_i$. The decision line between actions $a_1$ and $a_2$ is given by:
+\begin{align*}
+\frac{\alpha_1}{(1+\text{exp}(-r_1(y+y_0)))} + \beta_1 &= \frac{\alpha_2}{(1+\text{exp}(-r_2(y+y_0)))} + \beta_2 \\
+\end{align*}
+This equation is more complex and may not have a closed-form solution, but it can be solved numerically. 
+
+
+\end{document}
